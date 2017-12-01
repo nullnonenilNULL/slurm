@@ -4055,6 +4055,28 @@ extern void slurm_free_control_status_msg(control_status_msg_t *msg)
 	xfree(msg);
 }
 
+extern void slurm_free_bb_status_req_msg(bb_status_req_msg_t *msg)
+{
+	int i;
+
+	if (msg) {
+		if (msg->argv) {
+			for (i = 0; i < msg->argc; i++)
+				xfree(msg->argv[i]);
+			xfree(msg->argv);
+		}
+		xfree(msg);
+	}
+}
+
+extern void slurm_free_bb_status_resp_msg(bb_status_resp_msg_t *msg)
+{
+	if (msg) {
+		xfree(msg->status_resp);
+		xfree(msg);
+	}
+}
+
 extern int slurm_free_msg_data(slurm_msg_type_t type, void *data)
 {
 	/* this message was never loaded */
@@ -4440,6 +4462,12 @@ extern int slurm_free_msg_data(slurm_msg_type_t type, void *data)
 	case RESPONSE_CONTROL_STATUS:
 		slurm_free_control_status_msg(data);
 		break;
+	case REQUEST_BURST_BUFFER_STATUS:
+		slurm_free_bb_status_req_msg(data);
+		break;
+	case RESPONSE_BURST_BUFFER_STATUS:
+		slurm_free_bb_status_resp_msg(data);
+		break;
 	default:
 		error("invalid type trying to be freed %u", type);
 		break;
@@ -4716,6 +4744,10 @@ rpc_num2string(uint16_t opcode)
 		return "REQUEST_CONTROL_STATUS";
 	case RESPONSE_CONTROL_STATUS:
 		return "RESPONSE_CONTROL_STATUS";
+	case REQUEST_BURST_BUFFER_STATUS:
+		return "REQUEST_BURST_BUFFER_STATUS";
+	case RESPONSE_BURST_BUFFER_STATUS:
+		return "RESPONSE_BURST_BUFFER_STATUS";
 
 	case REQUEST_UPDATE_JOB:				/* 3001 */
 		return "REQUEST_UPDATE_JOB";

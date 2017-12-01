@@ -785,6 +785,18 @@ static void _pack_control_status_msg(control_status_msg_t *msg,
 static int _unpack_control_status_msg(control_status_msg_t **msg_ptr,
 	Buf buffer, uint16_t protocol_version);
 
+static void _pack_bb_status_req_msg(bb_status_req_msg_t *msg, Buf buffer,
+				    uint16_t protocol_version);
+
+static int _unpack_bb_status_req_msg(bb_status_req_msg_t **msg_ptr, Buf buffer,
+				     uint16_t protocol_version);
+
+static void _pack_bb_status_resp_msg(bb_status_resp_msg_t *msg, Buf buffer,
+				     uint16_t protocol_version);
+
+static int _unpack_bb_status_resp_msg(bb_status_resp_msg_t **msg_ptr,
+				      Buf buffer, uint16_t protocol_version);
+
 /* pack_header
  * packs a slurm protocol header that precedes every slurm message
  * IN header - the header structure to pack
@@ -1565,6 +1577,14 @@ pack_msg(slurm_msg_t const *msg, Buf buffer)
 		_pack_control_status_msg((control_status_msg_t *)(msg->data),
 			buffer, msg->protocol_version);
 		break;
+	case REQUEST_BURST_BUFFER_STATUS:
+		_pack_bb_status_req_msg((bb_status_req_msg_t *)(msg->data),
+					buffer, msg->protocol_version);
+		break;
+	case RESPONSE_BURST_BUFFER_STATUS:
+		_pack_bb_status_resp_msg((bb_status_resp_msg_t *)(msg->data),
+					 buffer, msg->protocol_version);
+		break;
 	default:
 		debug("No pack method for msg type %u", msg->msg_type);
 		return EINVAL;
@@ -2321,6 +2341,16 @@ unpack_msg(slurm_msg_t * msg, Buf buffer)
 	case RESPONSE_CONTROL_STATUS:
 		rc = _unpack_control_status_msg(
 			(control_status_msg_t **)&(msg->data), buffer,
+			msg->protocol_version);
+		break;
+	case REQUEST_BURST_BUFFER_STATUS:
+		rc = _unpack_bb_status_req_msg(
+			(bb_status_req_msg_t **)&(msg->data), buffer,
+			msg->protocol_version);
+		break;
+	case RESPONSE_BURST_BUFFER_STATUS:
+		rc = _unpack_bb_status_resp_msg(
+			(bb_status_resp_msg_t **)&(msg->data), buffer,
 			msg->protocol_version);
 		break;
 	default:
@@ -13928,6 +13958,55 @@ static int _unpack_control_status_msg(control_status_msg_t **msg_ptr,
 
 unpack_error:
 	slurm_free_control_status_msg(msg);
+	*msg_ptr = NULL;
+	return SLURM_ERROR;
+}
+
+static void _pack_bb_status_req_msg(bb_status_req_msg_t *msg, Buf buffer,
+				    uint16_t protocol_version)
+{
+	packstr_array(msg->argv, msg->argc, buffer);
+}
+
+static int _unpack_bb_status_req_msg(bb_status_req_msg_t **msg_ptr, Buf buffer,
+				     uint16_t protocol_version)
+{
+	bb_status_req_msg_t *msg;
+	xassert(msg_ptr);
+
+	msg = xmalloc(sizeof(bb_status_req_msg_t));
+	*msg_ptr = msg;
+
+	safe_unpackstr_array(&msg->argv, &msg->argc, buffer);
+	return SLURM_SUCCESS;
+
+unpack_error:
+	slurm_free_bb_status_req_msg(msg);
+	*msg_ptr = NULL;
+	return SLURM_ERROR;
+}
+
+static void _pack_bb_status_resp_msg(bb_status_resp_msg_t *msg, Buf buffer,
+				     uint16_t protocol_version)
+{
+	packstr(msg->status_resp, buffer);
+}
+
+static int _unpack_bb_status_resp_msg(bb_status_resp_msg_t **msg_ptr,
+				      Buf buffer, uint16_t protocol_version)
+{
+	uint32_t uint32_tmp = 0;
+	bb_status_resp_msg_t *msg;
+	xassert(msg_ptr);
+
+	msg = xmalloc(sizeof(bb_status_resp_msg_t));
+	*msg_ptr = msg;
+
+	safe_unpackstr_xmalloc(&msg->status_resp, &uint32_tmp, buffer);
+	return SLURM_SUCCESS;
+
+unpack_error:
+	slurm_free_bb_status_resp_msg(msg);
 	*msg_ptr = NULL;
 	return SLURM_ERROR;
 }
