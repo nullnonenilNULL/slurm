@@ -3736,6 +3736,7 @@ extern void slurm_free_burst_buffer_info_msg(burst_buffer_info_msg_t *msg)
 			xfree(bb_info_ptr->deny_users);
 			xfree(bb_info_ptr->destroy_buffer);
 			xfree(bb_info_ptr->get_sys_state);
+			xfree(bb_info_ptr->get_sys_status);
 			xfree(bb_info_ptr->name);
 			xfree(bb_info_ptr->start_stage_in);
 			xfree(bb_info_ptr->start_stage_out);

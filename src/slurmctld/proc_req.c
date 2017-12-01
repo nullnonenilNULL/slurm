@@ -6296,19 +6296,17 @@ inline static void _slurm_rpc_burst_buffer_status(slurm_msg_t *msg)
 	bb_status_resp_msg_t status_resp_msg;
 	bb_status_req_msg_t *status_req_msg = (bb_status_req_msg_t *)msg->data;
 
-int i;
-for (i=0; i<status_req_msg->argc; i++)
-info("ARGV[%d]:%s", i, status_req_msg->argv[i]);
-status_resp_msg.status_resp = "Response here...\n";
-
 	slurm_msg_t_init(&response_msg);
 	response_msg.protocol_version = msg->protocol_version;
 	response_msg.address = msg->address;
 	response_msg.conn = msg->conn;
 	response_msg.msg_type = RESPONSE_BURST_BUFFER_STATUS;
 	response_msg.data = &status_resp_msg;
-response_msg.data_size = strlen(status_resp_msg.status_resp)+1;
+	status_resp_msg.status_resp = bb_g_get_status(status_req_msg->argc,
+						      status_req_msg->argv);
+	response_msg.data_size = strlen(status_resp_msg.status_resp) + 1;
 	slurm_send_node_msg(msg->conn_fd, &response_msg);
+	xfree(status_resp_msg.status_resp);
 }
 
 inline static void _slurm_rpc_control_status(slurm_msg_t * msg)

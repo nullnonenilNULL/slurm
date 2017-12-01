@@ -424,6 +424,13 @@ extern void slurm_print_burst_buffer_record(FILE *out,
 	if (!one_liner)
 		xstrcat(out_buf, "\n");
 
+	/****** Line ******/
+	snprintf(tmp_line, sizeof(tmp_line),
+		"  GetSysStatus=%s", burst_buffer_ptr->get_sys_status);
+	xstrcat(out_buf, tmp_line);
+	if (!one_liner)
+		xstrcat(out_buf, "\n");
+
 	/****** Line (optional) ******/
 	if (burst_buffer_ptr->start_stage_in) {
 		snprintf(tmp_line, sizeof(tmp_line),
