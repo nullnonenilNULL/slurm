@@ -193,6 +193,9 @@ void slurm_sprint_cpu_bind_type(char *str, cpu_bind_type_t cpu_bind_type)
 	if (cpu_bind_type & CPU_AUTO_BIND_TO_SOCKETS)
 		strcat(str, "autobind=sockets,");
 
+	if (cpu_bind_type & CPU_BIND_OFF)
+		strcat(str, "off,");
+
 	if (*str) {
 		str[strlen(str)-1] = '\0';	/* remove trailing ',' */
 	} else {
@@ -585,6 +588,14 @@ extern int xlate_cpu_bind_str(char *cpu_bind_str, uint32_t *flags)
 				break;
 			} else {
 				*flags |= CPU_BIND_TO_THREADS;
+				have_bind_type = true;
+			}
+		} else if (xstrcasecmp(tok, "off") == 0) {
+			if (have_bind_type) {
+				rc = SLURM_ERROR;
+				break;
+			} else {
+				*flags |= CPU_BIND_OFF;
 				have_bind_type = true;
 			}
 		} else if ((xstrcasecmp(tok, "v") == 0) ||

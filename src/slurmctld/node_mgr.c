@@ -57,18 +57,19 @@
 #include "src/common/hostlist.h"
 #include "src/common/macros.h"
 #include "src/common/node_features.h"
+#include "src/common/node_select.h"
 #include "src/common/pack.h"
 #include "src/common/parse_time.h"
 #include "src/common/power.h"
-#include "src/common/node_features.h"
-#include "src/common/node_select.h"
 #include "src/common/read_config.h"
 #include "src/common/slurm_accounting_storage.h"
 #include "src/common/slurm_acct_gather_energy.h"
 #include "src/common/slurm_ext_sensors.h"
+#include "src/common/slurm_resource_info.h"
 #include "src/common/slurm_mcs.h"
 #include "src/common/xassert.h"
 #include "src/common/xstring.h"
+
 #include "src/slurmctld/agent.h"
 #include "src/slurmctld/front_end.h"
 #include "src/slurmctld/locks.h"
@@ -1289,6 +1290,18 @@ int update_node ( update_node_msg_t * update_node_msg )
 			/* This updates the lookup table addresses */
 			slurm_reset_alias(node_ptr->name, node_ptr->comm_name,
 					  node_ptr->node_hostname);
+		}
+
+		if (update_node_msg->cpu_bind) {
+			char tmp_str[128];
+			slurm_sprint_cpu_bind_type(tmp_str,
+						   update_node_msg->cpu_bind);
+			info("update_node: setting CpuBind to %s for node %s",
+			     tmp_str, this_node_name);
+			if (update_node_msg->cpu_bind == CPU_BIND_OFF)
+				node_ptr->cpu_bind = 0;
+			else
+				node_ptr->cpu_bind = update_node_msg->cpu_bind;
 		}
 
 		if (update_node_msg->features || update_node_msg->features_act) {

@@ -53,25 +53,25 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "src/common/assoc_mgr.h"
 #include "src/common/hostlist.h"
 #include "src/common/list.h"
 #include "src/common/node_select.h"
 #include "src/common/pack.h"
+#include "src/common/slurm_resource_info.h"
 #include "src/common/uid.h"
 #include "src/common/xstring.h"
-#include "src/common/assoc_mgr.h"
 
+#include "src/slurmctld/burst_buffer.h"
 #include "src/slurmctld/gang.h"
 #include "src/slurmctld/groups.h"
+#include "src/slurmctld/licenses.h"
 #include "src/slurmctld/locks.h"
 #include "src/slurmctld/proc_req.h"
 #include "src/slurmctld/read_config.h"
 #include "src/slurmctld/reservation.h"
 #include "src/slurmctld/slurmctld.h"
 #include "src/slurmctld/state_save.h"
-#include "src/slurmctld/licenses.h"
-#include "src/slurmctld/burst_buffer.h"
-
 
 /* No need to change we always pack SLURM_PROTOCOL_VERSION */
 #define PART_STATE_VERSION        "PROTOCOL_VERSION"
@@ -1267,6 +1267,17 @@ extern int update_part (update_part_msg_t * part_desc, bool create_flag)
 	}
 
 	last_part_update = time(NULL);
+
+	if (part_desc->cpu_bind) {
+		char tmp_str[128];
+		slurm_sprint_cpu_bind_type(tmp_str, part_desc->cpu_bind);
+		info("update_part: setting CpuBind to %s for partition %s",
+		     tmp_str, part_desc->name);
+		if (part_desc->cpu_bind == CPU_BIND_OFF)
+			part_ptr->cpu_bind = 0;
+		else
+			part_ptr->cpu_bind = part_desc->cpu_bind;
+	}
 
 	if (part_desc->max_cpus_per_node != NO_VAL) {
 		info("update_part: setting MaxCPUsPerNode to %u for partition %s",
