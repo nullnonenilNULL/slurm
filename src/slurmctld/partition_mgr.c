@@ -513,6 +513,7 @@ static int _dump_part_state(void *x, void *arg)
 	else
 		part_ptr->flags &= (~PART_FLAG_DEFAULT);
 
+	pack32(part_ptr->cpu_bind,	 buffer);
 	packstr(part_ptr->name,          buffer);
 	pack32(part_ptr->grace_time,	 buffer);
 	pack32(part_ptr->max_time,       buffer);
@@ -588,7 +589,7 @@ int load_all_part_state(void)
 	char *deny_accounts = NULL, *deny_qos = NULL, *qos_char = NULL;
 	char *state_file = NULL, *data = NULL;
 	uint32_t max_time, default_time, max_nodes, min_nodes;
-	uint32_t max_cpus_per_node = INFINITE, grace_time = 0;
+	uint32_t max_cpus_per_node = INFINITE, cpu_bind = 0, grace_time = 0;
 	time_t time;
 	uint16_t flags, priority_job_factor, priority_tier;
 	uint16_t max_share, over_time_limit = NO_VAL16, preempt_mode;
@@ -658,7 +659,58 @@ int load_all_part_state(void)
 	safe_unpack_time(&time, buffer);
 
 	while (remaining_buf(buffer) > 0) {
-		if (protocol_version >= SLURM_MIN_PROTOCOL_VERSION) {
+		if (protocol_version >= SLURM_18_08_PROTOCOL_VERSION) {
+			safe_unpack32(&cpu_bind, buffer);
+			safe_unpackstr_xmalloc(&part_name, &name_len, buffer);
+			safe_unpack32(&grace_time, buffer);
+			safe_unpack32(&max_time, buffer);
+			safe_unpack32(&default_time, buffer);
+			safe_unpack32(&max_cpus_per_node, buffer);
+			safe_unpack32(&max_nodes, buffer);
+			safe_unpack32(&min_nodes, buffer);
+
+			safe_unpack16(&flags,        buffer);
+			safe_unpack16(&max_share,    buffer);
+			safe_unpack16(&over_time_limit, buffer);
+			safe_unpack16(&preempt_mode, buffer);
+
+			safe_unpack16(&priority_job_factor, buffer);
+			safe_unpack16(&priority_tier, buffer);
+			if (priority_job_factor > part_max_priority)
+				part_max_priority = priority_job_factor;
+
+			safe_unpack16(&state_up, buffer);
+			safe_unpack16(&cr_type, buffer);
+
+			safe_unpackstr_xmalloc(&allow_accounts,
+					       &name_len, buffer);
+			safe_unpackstr_xmalloc(&allow_groups,
+					       &name_len, buffer);
+			safe_unpackstr_xmalloc(&allow_qos,
+					       &name_len, buffer);
+			safe_unpackstr_xmalloc(&qos_char,
+					       &name_len, buffer);
+			safe_unpackstr_xmalloc(&deny_accounts,
+					       &name_len, buffer);
+			safe_unpackstr_xmalloc(&deny_qos,
+					       &name_len, buffer);
+			safe_unpackstr_xmalloc(&allow_alloc_nodes,
+					       &name_len, buffer);
+			safe_unpackstr_xmalloc(&alternate, &name_len, buffer);
+			safe_unpackstr_xmalloc(&nodes, &name_len, buffer);
+			if ((flags & PART_FLAG_DEFAULT_CLR)   ||
+			    (flags & PART_FLAG_EXC_USER_CLR)  ||
+			    (flags & PART_FLAG_HIDDEN_CLR)    ||
+			    (flags & PART_FLAG_NO_ROOT_CLR)   ||
+			    (flags & PART_FLAG_ROOT_ONLY_CLR) ||
+			    (flags & PART_FLAG_REQ_RESV_CLR)  ||
+			    (flags & PART_FLAG_LLN_CLR)) {
+				error("Invalid data for partition %s: flags=%u",
+				      part_name, flags);
+				error_code = EINVAL;
+			}
+		} else if (protocol_version >= SLURM_MIN_PROTOCOL_VERSION) {
+			cpu_bind = 0;
 			safe_unpackstr_xmalloc(&part_name, &name_len, buffer);
 			safe_unpack32(&grace_time, buffer);
 			safe_unpack32(&max_time, buffer);
@@ -740,13 +792,14 @@ int load_all_part_state(void)
 					   part_name);
 		part_cnt++;
 		if (part_ptr == NULL) {
-			info("load_all_part_state: partition %s missing from "
-				"configuration file", part_name);
+			info("%s: partition %s missing from configuration file",
+			     __func__, part_name);
 			part_ptr = create_part_record();
 			xfree(part_ptr->name);
 			part_ptr->name = xstrdup(part_name);
 		}
 
+		part_ptr->cpu_bind       = cpu_bind;
 		part_ptr->flags          = flags;
 		if (part_ptr->flags & PART_FLAG_DEFAULT) {
 			xfree(default_part_name);
