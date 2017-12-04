@@ -1069,7 +1069,7 @@ static int _parse_partitionname(void **dest, slurm_parser_enum_t type,
 {
 	s_p_hashtbl_t *tbl, *dflt;
 	slurm_conf_partition_t *p;
-	char *tmp = NULL;
+	char *cpu_bind = NULL, *tmp = NULL;
 	uint16_t tmp_16 = 0;
 	static s_p_options_t _partition_options[] = {
 		{"AllocNodes", S_P_STRING},
@@ -1077,7 +1077,7 @@ static int _parse_partitionname(void **dest, slurm_parser_enum_t type,
 		{"AllowGroups", S_P_STRING},
 		{"AllowQos", S_P_STRING},
 		{"Alternate", S_P_STRING},
-		{"TRESBillingWeights", S_P_STRING},
+		{"CpuBind", S_P_STRING},
 		{"DefMemPerCPU", S_P_UINT64},
 		{"DefMemPerNode", S_P_UINT64},
 		{"Default", S_P_BOOLEAN}, /* YES or NO */
@@ -1108,6 +1108,7 @@ static int _parse_partitionname(void **dest, slurm_parser_enum_t type,
 		{"SelectTypeParameters", S_P_STRING},
 		{"Shared", S_P_STRING}, /* YES, NO, or FORCE */
 		{"State", S_P_STRING}, /* UP, DOWN, INACTIVE or DRAIN */
+		{"TRESBillingWeights", S_P_STRING},
 		{NULL}
 	};
 
@@ -1174,6 +1175,17 @@ static int _parse_partitionname(void **dest, slurm_parser_enum_t type,
 
 		if (!s_p_get_string(&p->alternate, "Alternate", tbl))
 			s_p_get_string(&p->alternate, "Alternate", dflt);
+
+		if (s_p_get_string(&cpu_bind, "CpuBind", tbl) ||
+		    s_p_get_string(&cpu_bind, "CpuBind", dflt)) {
+			if (xlate_cpu_bind_str(cpu_bind, &p->cpu_bind) !=
+			    SLURM_SUCCESS) {
+				error("Partition=%s CpuBind=\'%s\' is invalid, ignored",
+				      p->name, cpu_bind);
+				p->cpu_bind = 0;
+			}
+			xfree(cpu_bind);
+		}
 
 		if (!s_p_get_string(&p->billing_weights_str,
 				    "TRESBillingWeights", tbl) &&

@@ -331,6 +331,7 @@ struct part_record {
 	char *alternate; 	/* name of alternate partition */
 	double *billing_weights;    /* array of TRES billing weights */
 	char   *billing_weights_str;/* per TRES billing weight string */
+	uint32_t cpu_bind;	/* default CPU binding type */
 	uint64_t def_mem_per_cpu; /* default MB memory per allocated CPU */
 	uint32_t default_time;	/* minutes, NO_VAL or INFINITE */
 	char *deny_accounts;	/* comma delimited list of denied accounts */

@@ -27,8 +27,8 @@ documents those changes that are of interest to users and administrators.
  -- Add "scontrol show dwstat" command to display Cray burst buffer status.
  -- Add "GetSysStatus" option to burst_buffer.conf file. For burst_buffer/cray
     this would indicate the location of the "dwstat" command.
- -- Add node configuration option of "CpuBind" to control per-node default task
-    binding.
+ -- Add node and partition configuration options of "CpuBind" to control default
+    task binding.
 
 * Changes in Slurm 17.11.1
 ==========================
