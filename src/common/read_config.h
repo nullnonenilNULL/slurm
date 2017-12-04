@@ -221,6 +221,7 @@ typedef struct slurm_conf_node {
 	char *gres;		/* arbitrary list of node's generic resources */
 	char *feature;		/* arbitrary list of node's features */
 	char *port_str;
+	uint32_t cpu_bind;	/* default CPU bind type */
 	uint16_t cpus;		/* count of cpus running on the node */
 	char *cpu_spec_list;	/* arbitrary list of specialized cpus */
 	uint16_t boards; 	/* number of boards per node */

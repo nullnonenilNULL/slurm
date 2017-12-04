@@ -4139,6 +4139,14 @@ need to specify this parameter in order to optimize scheduling.
 The default value is 1.
 
 .TP
+\fBCpuBind\fR
+If a job step request does not specify an option to control how tasks are bound
+to allocated CPUs (\-\-cpu-bind) and all nodes allocate the the job have the  same
+\fBCpuBind\fR option the node \fBCpuBind\fR option will control how tasks are
+bound to allocated resources. Supported values for\fBCpuBind\fR are "none",
+"board", "socket", "ldom" (NUMA), "core" and "thread".
+
+.TP
 \fBCPUs\fR
 Number of logical processors on the node (e.g. "2").
 CPUs and Boards are mutually exclusive. It can be set to the total

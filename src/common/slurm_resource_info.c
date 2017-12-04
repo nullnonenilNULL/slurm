@@ -514,6 +514,94 @@ int slurm_verify_cpu_bind(const char *arg, char **cpu_bind,
 	return rc;
 }
 
+/*
+ * Translate a CPU bind string to its equivalent numeric value
+ * cpu_bind_str IN - string to translate
+ * flags OUT - equlvalent numeric value
+ * RET SLURM_SUCCESS or SLURM_ERROR
+ */
+extern int xlate_cpu_bind_str(char *cpu_bind_str, uint32_t *flags)
+{
+	int rc = SLURM_SUCCESS;
+	char *save_ptr = NULL, *tok, *tmp;
+	bool have_bind_type = false;
+
+	*flags = 0;
+	if (!cpu_bind_str)
+		return rc;
+
+	tmp = xstrdup(cpu_bind_str);
+	tok = strtok_r(tmp, ",;", &save_ptr);
+	while (tok) {
+		if ((xstrcasecmp(tok, "no") == 0) ||
+		    (xstrcasecmp(tok, "none") == 0)) {
+			if (have_bind_type) {
+				rc = SLURM_ERROR;
+				break;
+			} else {
+				*flags |= CPU_BIND_NONE;
+				have_bind_type = true;
+			}
+		} else if ((xstrcasecmp(tok, "board") == 0) ||
+			   (xstrcasecmp(tok, "boards") == 0)) {
+			if (have_bind_type) {
+				rc = SLURM_ERROR;
+				break;
+			} else {
+				*flags |= CPU_BIND_TO_BOARDS;
+				have_bind_type = true;
+			}
+		} else if ((xstrcasecmp(tok, "socket") == 0) ||
+			   (xstrcasecmp(tok, "sockets") == 0)) {
+			if (have_bind_type) {
+				rc = SLURM_ERROR;
+				break;
+			} else {
+				*flags |= CPU_BIND_TO_SOCKETS;
+				have_bind_type = true;
+			}
+		} else if ((xstrcasecmp(tok, "ldom") == 0) ||
+			   (xstrcasecmp(tok, "ldoms") == 0)) {
+			if (have_bind_type) {
+				rc = SLURM_ERROR;
+				break;
+			} else {
+				*flags |= CPU_BIND_TO_LDOMS;
+				have_bind_type = true;
+			}
+		} else if ((xstrcasecmp(tok, "core") == 0) ||
+			   (xstrcasecmp(tok, "cores") == 0)) {
+			if (have_bind_type) {
+				rc = SLURM_ERROR;
+				break;
+			} else {
+				*flags |= CPU_BIND_TO_CORES;
+				have_bind_type = true;
+			}
+		} else if ((xstrcasecmp(tok, "thread") == 0) ||
+			   (xstrcasecmp(tok, "threads") == 0)) {
+			if (have_bind_type) {
+				rc = SLURM_ERROR;
+				break;
+			} else {
+				*flags |= CPU_BIND_TO_THREADS;
+				have_bind_type = true;
+			}
+		} else if ((xstrcasecmp(tok, "v") == 0) ||
+			   (xstrcasecmp(tok, "verbose") == 0)) {
+		        *flags |= CPU_BIND_VERBOSE;
+		} else {
+			/* Other options probably not desirable to support */
+			rc = SLURM_ERROR;
+			break;
+		}
+		tok = strtok_r(NULL, ",;", &save_ptr);
+	}
+	xfree(tmp);
+
+	return rc;
+}
+
 void slurm_print_mem_bind_help(void)
 {
 			printf(

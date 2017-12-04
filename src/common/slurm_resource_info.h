@@ -51,4 +51,12 @@ int slurm_verify_cpu_bind(const char *arg, char **cpu_bind,
 int slurm_verify_mem_bind(const char *arg, char **mem_bind,
 			  mem_bind_type_t *flags);
 
+/*
+ * Translate a CPU bind string to its equivalent numeric value
+ * cpu_bind_str IN - string to translate
+ * flags OUT - equlvalent numeric value
+ * RET SLURM_SUCCESS or SLURM_ERROR
+ */
+extern int xlate_cpu_bind_str(char *cpu_bind_str, uint32_t *flags);
+
 #endif /* !_RES_INFO_H */

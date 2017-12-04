@@ -78,6 +78,7 @@
 #include "src/common/slurm_accounting_storage.h"
 #include "src/common/slurm_protocol_api.h"
 #include "src/common/slurm_protocol_defs.h"
+#include "src/common/slurm_resource_info.h"
 #include "src/common/slurm_rlimits_info.h"
 #include "src/common/slurm_selecttype_info.h"
 #include "src/common/strlcpy.h"
@@ -586,6 +587,7 @@ static int _parse_nodename(void **dest, slurm_parser_enum_t type,
 		{"CoresPerSocket", S_P_UINT16},
 		{"CPUs", S_P_UINT16},
 		{"CPUSpecList", S_P_STRING},
+		{"CpuBind", S_P_STRING},
 		{"Feature", S_P_STRING},
 		{"Features", S_P_STRING},
 		{"Gres", S_P_STRING},
@@ -642,6 +644,7 @@ static int _parse_nodename(void **dest, slurm_parser_enum_t type,
 		bool no_sockets_per_board = false;
 		uint16_t sockets_per_board = 0;
 		uint16_t calc_cpus;
+		char *cpu_bind = NULL;
 
 		n = xmalloc(sizeof(slurm_conf_node_t));
 		dflt = default_nodename_tbl;
@@ -660,6 +663,17 @@ static int _parse_nodename(void **dest, slurm_parser_enum_t type,
 		    && !s_p_get_uint16(&n->boards, "Boards", dflt)) {
 			n->boards = 1;
 			no_boards = true;
+		}
+
+		if (s_p_get_string(&cpu_bind, "CpuBind", tbl) ||
+		    s_p_get_string(&cpu_bind, "CpuBind", dflt)) {
+			if (xlate_cpu_bind_str(cpu_bind, &n->cpu_bind) !=
+			    SLURM_SUCCESS) {
+				error("NodeNames=%s CpuBind=\'%s\' is invalid, ignored",
+				      n->nodenames, cpu_bind);
+				n->cpu_bind = 0;
+			}
+			xfree(cpu_bind);
 		}
 
 		if (!s_p_get_uint16(&n->core_spec_cnt, "CoreSpecCount", tbl)
