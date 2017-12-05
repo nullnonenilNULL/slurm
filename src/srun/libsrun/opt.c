@@ -1129,7 +1129,8 @@ _process_env_var(env_vars_t *e, const char *val)
 	case OPT_CPU_BIND:
 		xfree(sropt.cpu_bind);
 		if (slurm_verify_cpu_bind(val, &sropt.cpu_bind,
-					  &sropt.cpu_bind_type))
+					  &sropt.cpu_bind_type,
+					  slurm_get_task_plugin_param()))
 			exit(error_exit);
 		break;
 
@@ -1717,7 +1718,8 @@ static void _set_options(const int argc, char **argv)
 				break;	/* Fix for Coverity false positive */
 			xfree(sropt.cpu_bind);
 			if (slurm_verify_cpu_bind(optarg, &sropt.cpu_bind,
-						  &sropt.cpu_bind_type))
+						  &sropt.cpu_bind_type,
+						  slurm_get_task_plugin_param()))
 				exit(error_exit);
 			sropt.cpu_bind_type_set = true;
 			break;
@@ -2878,7 +2880,8 @@ static bool _opt_verify(void)
 		opt.gid = opt.egid;
 
 	if (slurm_verify_cpu_bind(NULL, &sropt.cpu_bind,
-				  &sropt.cpu_bind_type))
+				  &sropt.cpu_bind_type,
+				  slurm_get_task_plugin_param()))
 		exit(error_exit);
 
 	if (!mpi_type)
