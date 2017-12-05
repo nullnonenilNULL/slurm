@@ -71,6 +71,7 @@
 #include "src/common/parse_config.h"
 #include "src/common/read_config.h"
 #include "src/common/slurm_protocol_api.h"
+#include "src/common/slurm_resource_info.h"
 #include "src/common/timers.h"
 #include "src/common/uid.h"
 #include "src/common/xmalloc.h"
@@ -165,10 +166,12 @@ static uid_t *allowed_uid = NULL;
 static int allowed_uid_cnt = 0;
 static uint32_t boot_time = (5 * 60);	/* 5 minute estimated boot time */
 static pthread_mutex_t config_mutex = PTHREAD_MUTEX_INITIALIZER;
+static uint32_t cpu_bind[KNL_NUMA_CNT];	/* Derived from numa_cpu_bind */
 static bool debug_flag = false;
 static uint16_t default_mcdram = KNL_CACHE;
 static uint16_t default_numa = KNL_ALL2ALL;
 static char *mc_path = NULL;
+static char *numa_cpu_bind = NULL;
 static uint32_t syscfg_timeout = 0;
 static bool reconfig = false;
 static time_t shutdown_time = 0;
@@ -192,6 +195,7 @@ static s_p_options_t knl_conf_file_options[] = {
 	{"DefaultNUMA", S_P_STRING},
 	{"LogFile", S_P_STRING},
 	{"McPath", S_P_STRING},
+	{"NumaCpuBind", S_P_STRING},
 	{"SyscfgPath", S_P_STRING},
 	{"SyscfgTimeout", S_P_UINT32},
 	{"SystemType", S_P_STRING},
@@ -211,6 +215,7 @@ static uint16_t _knl_numa_token(char *token);
 static void _log_script_argv(char **script_argv, char *resp_msg);
 static char *_run_script(char *cmd_path, char **script_argv, int *status);
 static int  _tot_wait (struct timeval *start_time);
+static void _update_cpu_bind(void);
 
 static s_p_hashtbl_t *_config_make_tbl(char *filename)
 {
@@ -475,6 +480,72 @@ static int _tot_wait (struct timeval *start_time)
 	return msec_delay;
 }
 
+/*
+ * Update cpu_bind array from current numa_cpu_bind configuration parameter
+ */
+static void _update_cpu_bind(void)
+{
+	char *save_ptr = NULL, *sep, *tok, *tmp;
+	int rc = SLURM_SUCCESS;
+	int i, numa_inx, numa_def;
+	uint32_t cpu_bind_val = 0;
+
+	for (i = 0; i < KNL_NUMA_CNT; i++)
+		cpu_bind[0] = 0;
+
+	if (!numa_cpu_bind)
+		return;
+
+	tmp = xstrdup(numa_cpu_bind);
+	tok = strtok_r(tmp, ";", &save_ptr);
+	while (tok) {
+		sep = strchr(tok, '=');
+		if (!sep) {
+			rc = SLURM_ERROR;
+			break;
+		}
+		sep[0] = '\0';
+		numa_def = _knl_numa_token(tok);
+		if (numa_def == 0) {
+			rc = SLURM_ERROR;
+			break;
+		}
+		if (xlate_cpu_bind_str(sep + 1, &cpu_bind_val) !=
+		    SLURM_SUCCESS) {
+			rc = SLURM_ERROR;
+			break;
+		}
+		numa_inx = -1;
+		for (i = 0; i < KNL_NUMA_CNT; i++) {
+			if ((0x1 << i) == numa_def) {
+				numa_inx = i;
+				break;
+			}
+		}
+		if (numa_inx > -1)
+			cpu_bind[numa_inx] = cpu_bind_val;
+		tok = strtok_r(NULL, ";", &save_ptr);
+	}
+	xfree(tmp);
+
+	if (rc != SLURM_SUCCESS) {
+		error("%s: Invalid NumaCpuBind (%s), ignored",
+		      plugin_type, numa_cpu_bind);
+	}
+
+	if (debug_flag) {
+		for (i = 0; i < KNL_NUMA_CNT; i++) {
+			char cpu_bind_str[128], *numa_str;
+			if (cpu_bind[i] == 0)
+				continue;
+			numa_str = _knl_numa_str(0x1 << i);
+			slurm_sprint_cpu_bind_type(cpu_bind_str, cpu_bind[i]);
+			info("CpuBind[%s] = %s", numa_str, cpu_bind_str);
+			xfree(numa_str);
+		}
+	}
+}
+
 /* Log a command's arguments. */
 static void _log_script_argv(char **script_argv, char *resp_msg)
 {
@@ -713,18 +784,19 @@ extern int init(void)
 	char *knl_conf_file, *tmp_str = NULL, *resume_program;
 	s_p_hashtbl_t *tbl;
 	struct stat stat_buf;
-	int rc = SLURM_SUCCESS;
+	int i, rc = SLURM_SUCCESS;
 
 	/* Set default values */
 	allow_mcdram = KNL_MCDRAM_FLAG;
 	allow_numa = KNL_NUMA_FLAG;
 	xfree(allowed_uid);
 	allowed_uid_cnt = 0;
+	for (i = 0; i < KNL_NUMA_CNT; i++)
+		cpu_bind[i] = 0;
 	syscfg_timeout = DEFAULT_SYSCFG_TIMEOUT;
 	debug_flag = false;
 	default_mcdram = KNL_CACHE;
 	default_numa = KNL_ALL2ALL;
-
 //FIXME: Need better mechanism to get MCDRAM percentages
 //	for (i = 0; i < KNL_MCDRAM_CNT; i++)
 //		mcdram_pct[i] = -1;
@@ -733,6 +805,10 @@ extern int init(void)
 	mcdram_pct[2] = 50;	// KNL_HYBRID
 	mcdram_pct[3] = 0;	// KNL_FLAT
 	mcdram_pct[4] = 0;	// KNL_AUTO
+	xfree(numa_cpu_bind);
+
+	if (slurm_get_debug_flags() & DEBUG_FLAG_NODE_FEATURES)
+		debug_flag = true;
 
 	knl_conf_file = get_extra_conf_path("knl_generic.conf");
 	if ((stat(knl_conf_file, &stat_buf) == 0) &&
@@ -775,6 +851,8 @@ extern int init(void)
 			xfree(tmp_str);
 		}
 		(void) s_p_get_string(&mc_path, "McPath", tbl);
+		if (s_p_get_string(&numa_cpu_bind, "NumaCpuBind", tbl))
+			_update_cpu_bind();
 		(void) s_p_get_string(&syscfg_path, "SyscfgPath", tbl);
 		if (s_p_get_string(&tmp_str, "SystemType", tbl)) {
 			if ((knl_system_type = _knl_system_type_token(tmp_str))
@@ -809,9 +887,6 @@ extern int init(void)
 		rc = SLURM_ERROR;
 	}
 
-	if (slurm_get_debug_flags() & DEBUG_FLAG_NODE_FEATURES)
-		debug_flag = true;
-
 	if (slurm_get_debug_flags() & DEBUG_FLAG_NODE_FEATURES) {
 		allow_mcdram_str = _knl_mcdram_str(allow_mcdram);
 		allow_numa_str = _knl_numa_str(allow_numa);
@@ -825,6 +900,7 @@ extern int init(void)
 		info("DefaultMCDRAM=%s DefaultNUMA=%s",
 		     default_mcdram_str, default_numa_str);
 		info("McPath=%s", mc_path);
+		info("NumaCpuBind=%s", numa_cpu_bind);
 		info("SyscfgPath=%s", syscfg_path);
 		info("SyscfgTimeout=%u msec", syscfg_timeout);
 		info("SystemType=%s", _knl_system_type_str(knl_system_type));
@@ -861,6 +937,7 @@ extern int fini(void)
 	debug_flag = false;
 	xfree(mcdram_per_node);
 	xfree(mc_path);
+	xfree(numa_cpu_bind);
 	xfree(syscfg_path);
 
 	return SLURM_SUCCESS;

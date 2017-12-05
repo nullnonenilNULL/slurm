@@ -74,10 +74,12 @@
 #include "src/common/pack.h"
 #include "src/common/parse_config.h"
 #include "src/common/slurm_protocol_api.h"
+#include "src/common/slurm_resource_info.h"
 #include "src/common/timers.h"
 #include "src/common/uid.h"
 #include "src/common/xmalloc.h"
 #include "src/common/xstring.h"
+
 #include "src/slurmctld/job_scheduler.h"
 #include "src/slurmctld/locks.h"
 #include "src/slurmctld/node_scheduler.h"
@@ -177,10 +179,12 @@ static uint32_t capmc_poll_freq = 45;	/* capmc state polling frequency */
 static uint32_t capmc_retries = DEFAULT_CAPMC_RETRIES;
 static uint32_t capmc_timeout = 0;	/* capmc command timeout in msec */
 static char *cnselect_path = NULL;
+static uint32_t cpu_bind[KNL_NUMA_CNT];	/* Derived from numa_cpu_bind */
 static bool debug_flag = false;
 static uint16_t default_mcdram = KNL_CACHE;
 static uint16_t default_numa = KNL_ALL2ALL;
 static char *mc_path = NULL;
+static char *numa_cpu_bind = NULL;
 static char *syscfg_path = NULL;
 static pthread_mutex_t config_mutex = PTHREAD_MUTEX_INITIALIZER;
 static bool reconfig = false;
@@ -216,6 +220,7 @@ static s_p_options_t knl_conf_file_options[] = {
 	{"DefaultNUMA", S_P_STRING},
 	{"LogFile", S_P_STRING},
 	{"McPath", S_P_STRING},
+	{"NumaCpuBind", S_P_STRING},
 	{"SyscfgPath", S_P_STRING},
 	{"UmeCheckInterval", S_P_UINT32},
 	{NULL}
@@ -311,6 +316,7 @@ static void _update_all_node_features(
 				mcdram_cfg_t *mcdram_cfg, int mcdram_cfg_cnt,
 				numa_cap_t *numa_cap, int numa_cap_cnt,
 				numa_cfg_t *numa_cfg, int numa_cfg_cnt);
+static void _update_cpu_bind(void);
 static void _update_mcdram_pct(char *tok, int mcdram_num);
 static void _update_node_features(struct node_record *node_ptr,
 				  mcdram_cap_t *mcdram_cap, int mcdram_cap_cnt,
@@ -577,7 +583,74 @@ static void _free_script_argv(char **script_argv)
 	xfree(script_argv);
 }
 
-/* Update our mcdram_pct array with new data.
+/*
+ * Update cpu_bind array from current numa_cpu_bind configuration parameter
+ */
+static void _update_cpu_bind(void)
+{
+	char *save_ptr = NULL, *sep, *tok, *tmp;
+	int rc = SLURM_SUCCESS;
+	int i, numa_inx, numa_def;
+	uint32_t cpu_bind_val = 0;
+
+	for (i = 0; i < KNL_NUMA_CNT; i++)
+		cpu_bind[0] = 0;
+
+	if (!numa_cpu_bind)
+		return;
+
+	tmp = xstrdup(numa_cpu_bind);
+	tok = strtok_r(tmp, ";", &save_ptr);
+	while (tok) {
+		sep = strchr(tok, '=');
+		if (!sep) {
+			rc = SLURM_ERROR;
+			break;
+		}
+		sep[0] = '\0';
+		numa_def = _knl_numa_token(tok);
+		if (numa_def == 0) {
+			rc = SLURM_ERROR;
+			break;
+		}
+		if (xlate_cpu_bind_str(sep + 1, &cpu_bind_val) !=
+		    SLURM_SUCCESS) {
+			rc = SLURM_ERROR;
+			break;
+		}
+		numa_inx = -1;
+		for (i = 0; i < KNL_NUMA_CNT; i++) {
+			if ((0x1 << i) == numa_def) {
+				numa_inx = i;
+				break;
+			}
+		}
+		if (numa_inx > -1)
+			cpu_bind[numa_inx] = cpu_bind_val;
+		tok = strtok_r(NULL, ";", &save_ptr);
+	}
+	xfree(tmp);
+
+	if (rc != SLURM_SUCCESS) {
+		error("%s: Invalid NumaCpuBind (%s), ignored",
+		      plugin_type, numa_cpu_bind);
+	}
+
+	if (debug_flag) {
+		for (i = 0; i < KNL_NUMA_CNT; i++) {
+			char cpu_bind_str[128], *numa_str;
+			if (cpu_bind[i] == 0)
+				continue;
+			numa_str = _knl_numa_str(0x1 << i);
+			slurm_sprint_cpu_bind_type(cpu_bind_str, cpu_bind[i]);
+			info("CpuBind[%s] = %s", numa_str, cpu_bind_str);
+			xfree(numa_str);
+		}
+	}
+}
+
+/*
+ * Update our mcdram_pct array with new data.
  * tok IN - percentage of MCDRAM to be used as cache (string form)
  * mcdram_num - MCDRAM value (bit from KNL_FLAT, etc.)
  */
@@ -1680,12 +1753,18 @@ extern int init(void)
 	xfree(capmc_path);
 	capmc_poll_freq = 45;
 	capmc_timeout = DEFAULT_CAPMC_TIMEOUT;
+	for (i = 0; i < KNL_NUMA_CNT; i++)
+		cpu_bind[i] = 0;
 	debug_flag = false;
 	default_mcdram = KNL_CACHE;
 	default_numa = KNL_ALL2ALL;
 	for (i = 0; i < KNL_MCDRAM_CNT; i++)
 		mcdram_pct[i] = -1;
 	mcdram_set = 0;
+	xfree(numa_cpu_bind);
+
+	if (slurm_get_debug_flags() & DEBUG_FLAG_NODE_FEATURES)
+		debug_flag = true;
 
 	knl_conf_file = get_extra_conf_path("knl_cray.conf");
 	if ((stat(knl_conf_file, &stat_buf) == 0) &&
@@ -1733,6 +1812,8 @@ extern int init(void)
 			xfree(tmp_str);
 		}
 		(void) s_p_get_string(&mc_path, "McPath", tbl);
+		if (s_p_get_string(&numa_cpu_bind, "NumaCpuBind", tbl))
+			_update_cpu_bind();
 		(void) s_p_get_string(&syscfg_path, "SyscfgPath", tbl);
 		(void) s_p_get_uint32(&ume_check_interval, "UmeCheckInterval",
 				      tbl);
@@ -1750,9 +1831,6 @@ extern int init(void)
 		mc_path = xstrdup("/sys/devices/system/edac/mc");
 	if (!syscfg_path)
 		verbose("SyscfgPath is not configured");
-
-	if (slurm_get_debug_flags() & DEBUG_FLAG_NODE_FEATURES)
-		debug_flag = true;
 
 	if (slurm_get_debug_flags() & DEBUG_FLAG_NODE_FEATURES) {
 		allow_mcdram_str = _knl_mcdram_str(allow_mcdram);
@@ -1772,6 +1850,7 @@ extern int init(void)
 		info("DefaultMCDRAM=%s DefaultNUMA=%s",
 		     default_mcdram_str, default_numa_str);
 		info("McPath=%s", mc_path);
+		info("NumaCpuBind=%s", numa_cpu_bind);
 		info("SyscfgPath=%s", syscfg_path);
 		info("UmeCheckInterval=%u", ume_check_interval);
 		xfree(allow_mcdram_str);
@@ -1823,6 +1902,7 @@ extern int fini(void)
 	debug_flag = false;
 	xfree(mc_path);
 	xfree(mcdram_per_node);
+	xfree(numa_cpu_bind);
 	xfree(syscfg_path);
 	FREE_NULL_BITMAP(knl_node_bitmap);
 
