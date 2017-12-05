@@ -296,16 +296,17 @@ extern int slurm_verify_cpu_bind(const char *arg, char **cpu_bind,
 				 uint32_t default_cpu_bind)
 {
 	char *buf, *p, *tok;
-	int bind_bits =
-		CPU_BIND_NONE|CPU_BIND_RANK|CPU_BIND_MAP|CPU_BIND_MASK;
-	int bind_to_bits =
-		CPU_BIND_TO_SOCKETS|CPU_BIND_TO_CORES|CPU_BIND_TO_THREADS;
+	int bind_bits, bind_to_bits;
 	bool have_binding = _have_task_affinity();
 	bool log_binding = true;
 	int rc = SLURM_SUCCESS;
 
-	bind_bits    |= CPU_BIND_LDRANK|CPU_BIND_LDMAP|CPU_BIND_LDMASK;
-	bind_to_bits |= CPU_BIND_TO_LDOMS|CPU_BIND_TO_BOARDS;
+	bind_bits = CPU_BIND_NONE | CPU_BIND_RANK | CPU_BIND_MAP |
+		    CPU_BIND_MASK | CPU_BIND_LDRANK | CPU_BIND_LDMAP |
+		    CPU_BIND_LDMASK;
+	bind_to_bits = CPU_BIND_TO_SOCKETS | CPU_BIND_TO_CORES |
+		       CPU_BIND_TO_THREADS | CPU_BIND_TO_LDOMS |
+		       CPU_BIND_TO_BOARDS;
 
 	if (arg == NULL) {
 		if ((*flags != 0) || 		/* already set values */

@@ -64,6 +64,7 @@
 #include "src/common/proc_args.h"
 #include "src/common/read_config.h"
 #include "src/common/slurm_protocol_api.h"
+#include "src/common/slurm_resource_info.h"
 #include "src/common/slurm_rlimits_info.h"
 #include "src/common/uid.h"
 #include "src/common/xmalloc.h"
@@ -661,8 +662,9 @@ extern void init_srun(int argc, char **argv,
 			 */
 			pack_argc -= pack_argc_off;
 			pack_argv += pack_argc_off;
-		} else
+		} else {
 			pack_fini = true;
+		}
 	}
 	_post_opts(opt_list);
 	record_ppid();
@@ -2210,6 +2212,12 @@ static int _validate_relative(resource_allocation_response_msg_t *resp,
 	srun_opt_t *srun_opt = opt_local->srun_opt;
 	xassert(srun_opt);
 
+	if (slurm_verify_cpu_bind(NULL, &srun_opt->cpu_bind,
+				  &srun_opt->cpu_bind_type,
+				  resp->def_cpu_bind)) {
+		return SLURM_ERROR;
+	}
+
 	if (srun_opt->relative_set &&
 	    ((srun_opt->relative + opt_local->min_nodes)
 	     > resp->node_cnt)) {
@@ -2227,9 +2235,9 @@ static int _validate_relative(resource_allocation_response_msg_t *resp,
 			      opt_local->min_nodes,
 			      resp->node_cnt);
 		}
-		return -1;
+		return SLURM_ERROR;
 	}
-	return 0;
+	return SLURM_SUCCESS;
 }
 
 static void _call_spank_fini(void)
