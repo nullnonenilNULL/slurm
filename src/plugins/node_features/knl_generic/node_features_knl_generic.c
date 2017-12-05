@@ -211,6 +211,7 @@ static uint16_t _knl_mcdram_token(char *token);
 static int _knl_numa_bits_cnt(uint16_t numa_num);
 static uint16_t _knl_numa_parse(char *numa_str, char *sep);
 static char *_knl_numa_str(uint16_t numa_num);
+static int _knl_numa_inx(char *token);
 static uint16_t _knl_numa_token(char *token);
 static void _log_script_argv(char **script_argv, char *resp_msg);
 static char *_run_script(char *cmd_path, char **script_argv, int *status);
@@ -429,6 +430,24 @@ static uint16_t _knl_numa_token(char *token)
 		numa_num |= KNL_QUAD;
 
 	return numa_num;
+}
+
+/*
+ * Given a KNL NUMA token, return its cpu_bind offset
+ * token IN - String to scan
+ * RET NUMA offset or -1 if not found
+ */
+static int _knl_numa_inx(char *token)
+{
+	uint16_t numa_num;
+	int i;
+
+	numa_num = _knl_numa_token(token);
+	for (i = 0; i < KNL_NUMA_CNT; i++) {
+		if ((0x01 << i) == numa_num)
+			return i;
+	}
+	return -1;
 }
 
 /*
@@ -1576,7 +1595,7 @@ extern bool node_features_p_node_power(void)
 
 /*
  * Note the active features associated with a set of nodes have been updated.
- * Specifically update the node's "hbm" GRES value as needed.
+ * Specifically update the node's "hbm" GRES and "CpuBind" values as needed.
  * IN active_features - New active features
  * IN node_bitmap - bitmap of nodes changed
  * RET error code
@@ -1585,10 +1604,11 @@ extern int node_features_p_node_update(char *active_features,
 				       bitstr_t *node_bitmap)
 {
 	int i, i_first, i_last;
-	int rc = SLURM_SUCCESS;
-	uint16_t mcdram_inx;
+	int rc = SLURM_SUCCESS, numa_inx = -1;
+	uint16_t mcdram_inx = 0;
 	uint64_t mcdram_size;
 	struct node_record *node_ptr;
+	char *save_ptr = NULL, *tmp, *tok;
 
 	if (mcdram_per_node == NULL) {
 //FIXME: Additional logic is needed to determine the available MCDRAM space
@@ -1597,16 +1617,31 @@ extern int node_features_p_node_update(char *active_features,
 		for (i = 0; i < node_record_count; i++)
 			mcdram_per_node[i] = DEFAULT_MCDRAM_SIZE;
 	}
-	mcdram_inx = _knl_mcdram_parse(active_features, ",");
-	if (mcdram_inx == 0)
-		return rc;
-	for (i = 0; i < KNL_MCDRAM_CNT; i++) {
-		if ((KNL_CACHE << i) == mcdram_inx)
-			break;
+
+	if (active_features) {
+		tmp = xstrdup(active_features);
+		tok = strtok_r(tmp, ",", &save_ptr);
+		while (tok) {
+			if (numa_inx == -1)
+				numa_inx = _knl_numa_inx(tok);
+			mcdram_inx |= _knl_mcdram_token(tok);
+			tok = strtok_r(NULL, ",", &save_ptr);
+		}
+		xfree(tmp);
 	}
-	if ((i >= KNL_MCDRAM_CNT) || (mcdram_pct[i] == -1))
-		return rc;
-	mcdram_inx = i;
+
+	if (mcdram_inx >= 0) {
+		for (i = 0; i < KNL_MCDRAM_CNT; i++) {
+			if ((KNL_CACHE << i) == mcdram_inx)
+				break;
+		}
+		if ((i >= KNL_MCDRAM_CNT) || (mcdram_pct[i] == -1))
+			mcdram_inx = -1;
+		else
+			mcdram_inx = i;
+	} else {
+		mcdram_inx = -1;
+	}
 
 	xassert(node_bitmap);
 	i_first = bit_ffs(node_bitmap);
@@ -1623,12 +1658,16 @@ extern int node_features_p_node_update(char *active_features,
 			rc = SLURM_ERROR;
 			break;
 		}
-		mcdram_size = mcdram_per_node[i] *
-			      (100 - mcdram_pct[mcdram_inx]) / 100;
 		node_ptr = node_record_table_ptr + i;
-		gres_plugin_node_feature(node_ptr->name, "hbm",
-					 mcdram_size, &node_ptr->gres,
-					 &node_ptr->gres_list);
+		if ((numa_inx >= 0) && cpu_bind[numa_inx])
+			node_ptr->cpu_bind = cpu_bind[numa_inx];
+		if (mcdram_per_node && (mcdram_inx >= 0)) {
+			mcdram_size = mcdram_per_node[i] *
+				      (100 - mcdram_pct[mcdram_inx]) / 100;
+			gres_plugin_node_feature(node_ptr->name, "hbm",
+						 mcdram_size, &node_ptr->gres,
+						 &node_ptr->gres_list);
+		}
 	}
 
 	return rc;

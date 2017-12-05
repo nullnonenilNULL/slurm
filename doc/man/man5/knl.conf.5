@@ -156,7 +156,8 @@ See also \fBUmeCheckInterval\fR.
 .TP
 \fBNumaCpuBind\fR
 Contains pairs of NUMA modes and the CpuBind mode to set a node to for that mode.
-Any compute node found with or set to the specified NUMA mode
+Any compute node found with or set to the specified NUMA mode will have that
+node's CpuBind field set to the configured value.
 The NUMA node will be followed by an equal sign the the desired CpuBind mode for
 that NUMA mode. Multiple NUMA mode and CpuBind modes should be in a semicolon
 separated list.
