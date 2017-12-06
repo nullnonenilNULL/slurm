@@ -2233,13 +2233,20 @@ static void _set_def_cpu_bind(struct job_record *job_ptr)
 	job_resources_t *job_resrcs_ptr = job_ptr->job_resrcs;
 	struct node_record *node_ptr;
 	int i, i_first, i_last;
-	uint32_t node_bind = NO_VAL;
+	uint32_t bind_bits, bind_to_bits, node_bind = NO_VAL;
 	bool node_fail = false;
 
-	if (!job_ptr->details || !job_resrcs_ptr ||	/* No data structure */
-	    !job_resrcs_ptr->node_bitmap ||		/* No data structure */
-	    (job_ptr->details->cpu_bind_type != NO_VAL16))    /* Already set */
-		return;
+	if (!job_ptr->details || !job_resrcs_ptr ||
+	    !job_resrcs_ptr->node_bitmap)
+		return;		/* No data structure */
+
+	bind_to_bits = CPU_BIND_TO_SOCKETS | CPU_BIND_TO_CORES |
+		       CPU_BIND_TO_THREADS | CPU_BIND_TO_LDOMS |
+		       CPU_BIND_TO_BOARDS;
+	if ((job_ptr->details->cpu_bind_type != NO_VAL16) &&
+	    (job_ptr->details->cpu_bind_type & bind_to_bits))
+		return;		/* Already set */
+	bind_bits = job_ptr->details->cpu_bind_type & CPU_BIND_VERBOSE;
 
 	/*
 	 * Set job's cpu_bind to the node's cpu_bind if all of the job's
@@ -2264,18 +2271,20 @@ static void _set_def_cpu_bind(struct job_record *job_ptr)
 		}
 	}
 	if (!node_fail && (node_bind != NO_VAL)) {
-		job_ptr->details->cpu_bind_type = node_bind;
+		job_ptr->details->cpu_bind_type = bind_bits | node_bind;
 		return;
 	}
 
 	/* Use partition's cpu_bind (if any) */
 	if (job_ptr->part_ptr && job_ptr->part_ptr->cpu_bind) {
-		job_ptr->details->cpu_bind_type = job_ptr->part_ptr->cpu_bind;
+		job_ptr->details->cpu_bind_type = bind_bits |
+						  job_ptr->part_ptr->cpu_bind;
 		return;
 	}
 
 	/* Use global default from TaskPluginParams */
-	job_ptr->details->cpu_bind_type = slurmctld_conf.task_plugin_param;
+	job_ptr->details->cpu_bind_type = bind_bits |
+					  slurmctld_conf.task_plugin_param;
 	return;
 }
 
@@ -2501,9 +2510,6 @@ step_create(job_step_create_request_msg_t *step_specs,
 		return ret_code;
 	}
 	_set_def_cpu_bind(job_ptr);
-char tmp_str[128];
-slurm_sprint_cpu_bind_type(tmp_str, job_ptr->details->cpu_bind_type);
-info("SET DefCpuBind=%s", tmp_str);
 
 #ifdef HAVE_ALPS_CRAY
 	select_g_select_jobinfo_set(select_jobinfo,

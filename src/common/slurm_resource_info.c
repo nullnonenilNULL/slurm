@@ -309,8 +309,8 @@ extern int slurm_verify_cpu_bind(const char *arg, char **cpu_bind,
 		       CPU_BIND_TO_BOARDS;
 
 	if (arg == NULL) {
-		if ((*flags != 0) || 		/* already set values */
-		    (default_cpu_bind == 0))	/* no system defaults */
+		if (((*flags & bind_to_bits) != 0) ||	/* already set values */
+		    (default_cpu_bind == 0))		/* no system defaults */
 			return SLURM_SUCCESS;
 
 		/* set system defaults */

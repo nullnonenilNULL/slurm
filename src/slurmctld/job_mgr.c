@@ -17429,8 +17429,6 @@ extern resource_allocation_response_msg_t *
 	job_info_resp_msg->select_jobinfo =
 		select_g_select_jobinfo_copy(job_ptr->select_jobinfo);
 	if (job_ptr->details) {
-		job_info_resp_msg->def_cpu_bind =
-			job_ptr->details->cpu_bind_type;
 		job_info_resp_msg->pn_min_memory =
 			job_ptr->details->pn_min_memory;
 
@@ -17443,7 +17441,6 @@ extern resource_allocation_response_msg_t *
 				job_ptr->details->mc_ptr->ntasks_per_socket;
 		}
 	} else {
-		/* job_info_resp_msg->def_cpu_bind      = 0; */
 		/* job_info_resp_msg->pn_min_memory     = 0; */
 		job_info_resp_msg->ntasks_per_board  = NO_VAL16;
 		job_info_resp_msg->ntasks_per_core   = NO_VAL16;

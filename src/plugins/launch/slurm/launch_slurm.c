@@ -680,6 +680,7 @@ extern int launch_p_step_launch(srun_job_t *job, slurm_step_io_fds_t *cio_fds,
 	task_state_t task_state;
 	bool first_launch = false;
 	uint32_t def_cpu_bind_type = 0;
+	char tmp_str[128];
 	xassert(srun_opt);
 
 	slurm_step_launch_params_t_init(&launch_params);
@@ -741,6 +742,8 @@ extern int launch_p_step_launch(srun_job_t *job, slurm_step_io_fds_t *cio_fds,
 				  def_cpu_bind_type)) {
 		return SLURM_ERROR;
 	}
+	slurm_sprint_cpu_bind_type(tmp_str, srun_opt->cpu_bind_type);
+	verbose("CpuBindType=%s", tmp_str);
 	launch_params.cpu_bind = srun_opt->cpu_bind;
 	launch_params.cpu_bind_type = srun_opt->cpu_bind_type;
 
