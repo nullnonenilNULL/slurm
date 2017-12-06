@@ -64,7 +64,6 @@
 #include "src/common/proc_args.h"
 #include "src/common/read_config.h"
 #include "src/common/slurm_protocol_api.h"
-#include "src/common/slurm_resource_info.h"
 #include "src/common/slurm_rlimits_info.h"
 #include "src/common/uid.h"
 #include "src/common/xmalloc.h"
@@ -2211,12 +2210,6 @@ static int _validate_relative(resource_allocation_response_msg_t *resp,
 {
 	srun_opt_t *srun_opt = opt_local->srun_opt;
 	xassert(srun_opt);
-
-	if (slurm_verify_cpu_bind(NULL, &srun_opt->cpu_bind,
-				  &srun_opt->cpu_bind_type,
-				  resp->def_cpu_bind)) {
-		return SLURM_ERROR;
-	}
 
 	if (srun_opt->relative_set &&
 	    ((srun_opt->relative + opt_local->min_nodes)

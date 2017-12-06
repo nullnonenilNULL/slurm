@@ -2776,6 +2776,11 @@ static void _slurm_rpc_job_step_create(slurm_msg_t * msg)
 				xstrdup(step_rec->job_ptr->batch_host);
 		}
 #endif
+		if (step_rec->job_ptr && step_rec->job_ptr->details &&
+		    (step_rec->job_ptr->details->cpu_bind_type != NO_VAL16)) {
+			job_step_resp.def_cpu_bind_type =
+				step_rec->job_ptr->details->cpu_bind_type;
+		}
 		job_step_resp.cred           = slurm_cred;
 		job_step_resp.use_protocol_ver = step_rec->start_protocol_ver;
 		job_step_resp.select_jobinfo = step_rec->select_jobinfo;
