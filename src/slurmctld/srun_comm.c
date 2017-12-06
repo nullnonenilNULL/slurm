@@ -123,6 +123,7 @@ resource_allocation_response_msg_t *_build_alloc_msg(struct job_record *job_ptr)
 	msg_arg->cpus_per_node  = xmalloc(sizeof(uint16_t) *
 				  job_resrcs_ptr->cpu_array_cnt);
 	if (job_ptr->details) {
+		msg_arg->def_cpu_bind = job_ptr->details->cpu_bind_type;
 		msg_arg->pn_min_memory = job_ptr->details->pn_min_memory;
 		msg_arg->cpu_freq_min = job_ptr->details->cpu_freq_min;
 		msg_arg->cpu_freq_max = job_ptr->details->cpu_freq_max;

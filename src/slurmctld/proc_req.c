@@ -1133,8 +1133,8 @@ static void _build_alloc_msg(struct job_record *job_ptr,
 	alloc_msg->select_jobinfo =
 		select_g_select_jobinfo_copy(job_ptr->select_jobinfo);
 	if (job_ptr->details) {
+		alloc_msg->def_cpu_bind = job_ptr->details->cpu_bind_type;
 		alloc_msg->pn_min_memory = job_ptr->details->pn_min_memory;
-
 		if (job_ptr->details->mc_ptr) {
 			alloc_msg->ntasks_per_board =
 				job_ptr->details->mc_ptr->ntasks_per_board;
@@ -1154,7 +1154,8 @@ static void _build_alloc_msg(struct job_record *job_ptr,
 			}
 		}
 	} else {
-		alloc_msg->pn_min_memory = 0;
+		/* alloc_msg->cpu_bind = 0; */
+		/* alloc_msg->pn_min_memory = 0; */
 		alloc_msg->ntasks_per_board  = NO_VAL16;
 		alloc_msg->ntasks_per_core   = NO_VAL16;
 		alloc_msg->ntasks_per_socket = NO_VAL16;
@@ -3265,7 +3266,6 @@ static void _slurm_rpc_job_pack_alloc_info(slurm_msg_t * msg)
 	response_msg.protocol_version = msg->protocol_version;
 	slurm_send_node_msg(msg->conn_fd, &response_msg);
 	FREE_NULL_LIST(resp);
-
 }
 
 #ifndef HAVE_FRONT_END

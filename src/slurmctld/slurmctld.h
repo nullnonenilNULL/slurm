@@ -482,10 +482,8 @@ struct job_details {
 					 * currently does not matter to the
 					 * job allocation, setting this does
 					 * not do anything for steps. */
-	uint16_t cpu_bind_type;		/* see cpu_bind_type_t - This
-					 * currently does not matter to the
-					 * job allocation, setting this does
-					 * not do anything for steps. */
+	uint16_t cpu_bind_type;		/* Default CPU bind type for steps,
+					 * see cpu_bind_type_t */
 	uint32_t cpu_freq_min;  	/* Minimum cpu frequency  */
 	uint32_t cpu_freq_max;  	/* Maximum cpu frequency  */
 	uint32_t cpu_freq_gov;  	/* cpu frequency governor */
