@@ -3355,13 +3355,13 @@ static int _build_node_list(struct job_record *job_ptr,
 	}
 
 	if (!_valid_feature_counts(job_ptr, usable_node_mask, &has_xor)) {
-		info("No job %u feature requirements can not be met",
+		info("Job %u feature requirements can not be satisfied",
 		     job_ptr->job_id);
 		FREE_NULL_BITMAP(usable_node_mask);
 		if (err_msg) {
 			xfree(*err_msg);
 			*err_msg = xstrdup("Node feature requirements can not "
-					   "be specified");
+					   "be satisfied");
 		}
 		return ESLURM_REQUESTED_NODE_CONFIG_UNAVAILABLE;
 	}

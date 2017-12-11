@@ -453,6 +453,7 @@ typedef struct job_feature {
 	char *name;			/* name of feature */
 	uint16_t count;			/* count of nodes with this feature */
 	uint8_t op_code;		/* separator, see FEATURE_OP_ above */
+	uint16_t paren;			/* count of enclosing parenthesis */
 } job_feature_t;
 
 /*
@@ -498,8 +499,7 @@ struct job_details {
 	char *exc_nodes;		/* excluded nodes */
 	uint32_t expanding_jobid;	/* ID of job to be expanded */
 	char *extra;			/* extra field, unused */
-	List feature_list;		/* required features with
-					 * node counts */
+	List feature_list;		/* required features with node counts */
 	char *features;			/* required features */
 	uint32_t magic;			/* magic cookie for data integrity */
 	uint32_t max_cpus;		/* maximum number of cpus */

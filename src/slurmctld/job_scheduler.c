@@ -4,7 +4,7 @@
  *****************************************************************************
  *  Copyright (C) 2002-2007 The Regents of the University of California.
  *  Copyright (C) 2008-2010 Lawrence Livermore National Security.
- *  Portions Copyright (C) 2010-2016 SchedMD <https://www.schedmd.com>.
+ *  Portions Copyright (C) 2010-2017 SchedMD <https://www.schedmd.com>.
  *  Produced at Lawrence Livermore National Laboratory (cf, DISCLAIMER).
  *  Written by Morris Jette <jette1@llnl.gov>
  *  CODE-OCEC-09-009. All rights reserved.
@@ -4459,8 +4459,8 @@ extern int build_feature_list(struct job_record *job_ptr)
 {
 	struct job_details *detail_ptr = job_ptr->details;
 	char *tmp_requested, *str_ptr, *feature = NULL;
-	int bracket = 0, count = 0, i;
-	bool have_count = false, have_or = false;
+	int bracket = 0, count = 0, i, paren = 0;
+	bool fail = false;
 	job_feature_t *feat;
 
 	if (!detail_ptr || !detail_ptr->features)	/* no constraints */
@@ -4474,29 +4474,25 @@ extern int build_feature_list(struct job_record *job_ptr)
 
 	tmp_requested = xstrdup(detail_ptr->features);
 	detail_ptr->feature_list = list_create(_feature_list_delete);
-	for (i=0; ; i++) {
+	for (i = 0; ; i++) {
 		if (tmp_requested[i] == '*') {
 			tmp_requested[i] = '\0';
-			have_count = true;
 			count = strtol(&tmp_requested[i+1], &str_ptr, 10);
-			if ((feature == NULL) || (count <= 0)) {
-				info("Job %u invalid constraint %s",
-					job_ptr->job_id, detail_ptr->features);
-				xfree(tmp_requested);
-				return ESLURM_INVALID_FEATURE;
+			if ((feature == NULL) || (count <= 0) || (paren != 0)) {
+				fail = true;
+				break;
 			}
 			i = str_ptr - tmp_requested - 1;
 		} else if (tmp_requested[i] == '&') {
 			tmp_requested[i] = '\0';
 			if (feature == NULL) {
-				info("Job %u invalid constraint %s",
-					job_ptr->job_id, detail_ptr->features);
-				xfree(tmp_requested);
-				return ESLURM_INVALID_FEATURE;
+				fail = true;
+				break;
 			}
 			feat = xmalloc(sizeof(job_feature_t));
 			feat->name = xstrdup(feature);
 			feat->count = count;
+			feat->paren = paren;
 			if (bracket)
 				feat->op_code = FEATURE_OP_XAND;
 			else
@@ -4506,16 +4502,14 @@ extern int build_feature_list(struct job_record *job_ptr)
 			count = 0;
 		} else if (tmp_requested[i] == '|') {
 			tmp_requested[i] = '\0';
-			have_or = true;
 			if (feature == NULL) {
-				info("Job %u invalid constraint %s",
-					job_ptr->job_id, detail_ptr->features);
-				xfree(tmp_requested);
-				return ESLURM_INVALID_FEATURE;
+				fail = true;
+				break;
 			}
 			feat = xmalloc(sizeof(job_feature_t));
 			feat->name = xstrdup(feature);
 			feat->count = count;
+			feat->paren = paren;
 			if (bracket)
 				feat->op_code = FEATURE_OP_XOR;
 			else
@@ -4526,42 +4520,60 @@ extern int build_feature_list(struct job_record *job_ptr)
 		} else if (tmp_requested[i] == '[') {
 			tmp_requested[i] = '\0';
 			if ((feature != NULL) || bracket) {
-				info("Job %u invalid constraint %s",
-					job_ptr->job_id, detail_ptr->features);
-				xfree(tmp_requested);
-				return ESLURM_INVALID_FEATURE;
+				fail = true;
+				break;
 			}
 			bracket++;
 		} else if (tmp_requested[i] == ']') {
 			tmp_requested[i] = '\0';
 			if ((feature == NULL) || (bracket == 0)) {
-				info("Job %u invalid constraint %s",
+				verbose("Job %u invalid constraint %s",
 					job_ptr->job_id, detail_ptr->features);
 				xfree(tmp_requested);
 				return ESLURM_INVALID_FEATURE;
 			}
-			bracket = 0;
+			bracket--;
+		} else if (tmp_requested[i] == '(') {
+			tmp_requested[i] = '\0';
+			if ((feature != NULL) || paren) {
+				fail = true;
+				break;
+			}
+			paren++;
+		} else if (tmp_requested[i] == ')') {
+			tmp_requested[i] = '\0';
+			if ((feature == NULL) || (paren == 0)) {
+				fail = true;
+				break;
+			}
+			paren--;
 		} else if (tmp_requested[i] == '\0') {
 			if (feature) {
 				feat = xmalloc(sizeof(job_feature_t));
 				feat->name = xstrdup(feature);
 				feat->count = count;
+				feat->paren = paren;
 				feat->op_code = FEATURE_OP_END;
 				list_append(detail_ptr->feature_list, feat);
 			}
 			break;
-		} else if (tmp_requested[i] == ',') {
-			info("Job %u invalid constraint %s",
-				job_ptr->job_id, detail_ptr->features);
-			xfree(tmp_requested);
-			return ESLURM_INVALID_FEATURE;
 		} else if (feature == NULL) {
 			feature = &tmp_requested[i];
 		}
 	}
 	xfree(tmp_requested);
-	if (have_count && have_or) {
-		info("Job %u invalid constraint (OR with feature count): %s",
+	if (fail) {
+		verbose("Job %u invalid constraint %s",
+			job_ptr->job_id, detail_ptr->features);
+		return ESLURM_INVALID_FEATURE;
+	}
+	if (bracket != 0) {
+		verbose("Job %u constraint has unbalanced brackets: %s",
+			job_ptr->job_id, detail_ptr->features);
+		return ESLURM_INVALID_FEATURE;
+	}
+	if (paren != 0) {
+		verbose("Job %u constraint has unbalanced parenthesis: %s",
 			job_ptr->job_id, detail_ptr->features);
 		return ESLURM_INVALID_FEATURE;
 	}
@@ -4581,7 +4593,7 @@ static int _valid_feature_list(struct job_record *job_ptr, List feature_list)
 	ListIterator feat_iter;
 	job_feature_t *feat_ptr;
 	char *buf = NULL, tmp[16];
-	int bracket = 0;
+	int bracket = 0, paren = 0;
 	int rc = SLURM_SUCCESS;
 	bool can_reboot;
 
@@ -4600,7 +4612,15 @@ static int _valid_feature_list(struct job_record *job_ptr, List feature_list)
 				xstrcat(buf, "[");
 			bracket = 1;
 		}
+		if (feat_ptr->paren > paren) {
+			xstrcat(buf, "(");
+			paren = feat_ptr->paren;
+		}
 		xstrcat(buf, feat_ptr->name);
+		if (feat_ptr->paren < paren) {
+			xstrcat(buf, ")");
+			paren = feat_ptr->paren;
+		}
 		if (rc == SLURM_SUCCESS)
 			rc = _valid_node_feature(feat_ptr->name, can_reboot);
 		if (feat_ptr->count) {

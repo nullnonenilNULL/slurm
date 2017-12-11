@@ -1254,27 +1254,33 @@ extern int node_features_p_job_valid(char *job_features)
 {
 	uint16_t job_mcdram, job_numa;
 	int mcdram_cnt, numa_cnt;
+	int rc = SLURM_SUCCESS;
+	char *tmp, *tok, *save_ptr = NULL;
 
 	if ((job_features == NULL) || (job_features[0] == '\0'))
 		return SLURM_SUCCESS;
 
-	if (strchr(job_features, '[') ||	/* Unsupported operator */
-	    strchr(job_features, ']') ||
-	    strchr(job_features, '|') ||
-	    strchr(job_features, '*'))
-		return ESLURM_INVALID_KNL;
+	tmp = xstrdup(job_features);
+	tok = strtok_r(tmp, "[]()|", &save_ptr);
+	while (tok) {
+		job_mcdram = _knl_mcdram_parse(tok, "&,*");
+		mcdram_cnt = _knl_mcdram_bits_cnt(job_mcdram);
+		if (mcdram_cnt > 1) {		/* Multiple MCDRAM options */
+			rc = ESLURM_INVALID_KNL;
+			break;
+		}
 
-	job_mcdram = _knl_mcdram_parse(job_features, "&,");
-	mcdram_cnt = _knl_mcdram_bits_cnt(job_mcdram);
-	if (mcdram_cnt > 1)			/* Multiple MCDRAM options */
-		return ESLURM_INVALID_KNL;
+		job_numa = _knl_numa_parse(tok, "&,*");
+		numa_cnt = _knl_numa_bits_cnt(job_numa);
+		if (numa_cnt > 1) {		/* Multiple NUMA options */
+			rc = ESLURM_INVALID_KNL;
+			break;
+		}
+		tok = strtok_r(NULL, "[]()|", &save_ptr);
+	}
+	xfree(tmp);
 
-	job_numa = _knl_numa_parse(job_features, "&,");
-	numa_cnt = _knl_numa_bits_cnt(job_numa);
-	if (numa_cnt > 1)			/* Multiple NUMA options */
-		return ESLURM_INVALID_KNL;
-
-	return SLURM_SUCCESS;
+	return rc;
 }
 
 /* Translate a job's feature request to the node features needed at boot time */
