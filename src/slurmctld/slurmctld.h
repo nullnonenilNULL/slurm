@@ -453,6 +453,8 @@ typedef struct job_feature {
 	char *name;			/* name of feature */
 	uint16_t count;			/* count of nodes with this feature */
 	uint8_t op_code;		/* separator, see FEATURE_OP_ above */
+	bitstr_t *node_bitmap_active;	/* nodes with this feature active */
+	bitstr_t *node_bitmap_avail;	/* nodes with this feature available */
 	uint16_t paren;			/* count of enclosing parenthesis */
 } job_feature_t;
 

@@ -105,6 +105,7 @@ static int  _build_node_list(struct job_record *job_ptr,
 			     struct node_set **node_set_pptr,
 			     int *node_set_size, char **err_msg,
 			     bool test_only, bool can_reboot);
+static void _find_feature_nodes(List feature_list, bool can_reboot);
 static int  _fill_in_gres_fields(struct job_record *job_ptr);
 static void _filter_nodes_in_set(struct node_set *node_set_ptr,
 				 struct job_details *detail_ptr,
@@ -628,6 +629,45 @@ extern void deallocate_nodes(struct job_record *job_ptr, bool timeout,
 }
 
 /*
+ * For every element in the feature_list, identify the nodes with that feature
+ * either active or available and set the feature_list's node_bitmap_active and
+ * node_bitmap_avail fields accordingly.
+ */
+static void _find_feature_nodes(List feature_list, bool can_reboot)
+{
+	ListIterator feat_iter;
+	job_feature_t  *job_feat_ptr;
+	node_feature_t *node_feat_ptr;
+
+	feat_iter = list_iterator_create(feature_list);
+	while ((job_feat_ptr = (job_feature_t *) list_next(feat_iter))) {
+		FREE_NULL_BITMAP(job_feat_ptr->node_bitmap_active);
+		FREE_NULL_BITMAP(job_feat_ptr->node_bitmap_avail);
+		node_feat_ptr = list_find_first(active_feature_list,
+						list_find_feature,
+						job_feat_ptr->name);
+		if (node_feat_ptr && node_feat_ptr->node_bitmap) {
+			job_feat_ptr->node_bitmap_active =
+				bit_copy(node_feat_ptr->node_bitmap);
+		}
+		if (can_reboot &&
+		    node_features_g_changible_feature(job_feat_ptr->name)) {
+			node_feat_ptr = list_find_first(avail_feature_list,
+							list_find_feature,
+							job_feat_ptr->name);
+			if (node_feat_ptr && node_feat_ptr->node_bitmap) {
+				job_feat_ptr->node_bitmap_avail =
+					bit_copy(node_feat_ptr->node_bitmap);
+			}
+		} else if (job_feat_ptr->node_bitmap_active) {
+			job_feat_ptr->node_bitmap_avail =
+				bit_copy(job_feat_ptr->node_bitmap_active);
+		}
+	}
+	list_iterator_destroy(feat_iter);
+}
+
+/*
  * _match_feature - determine if the desired feature is one of those available
  * IN seek - desired feature
  * IN node_set_ptr - Pointer to node_set being searched
@@ -1099,6 +1139,8 @@ _get_req_features(struct node_set *node_set_ptr, int node_set_size,
 		job_feature_t *feat_ptr;
 		uint64_t smallest_min_mem = INFINITE64;
 		uint64_t orig_req_mem = job_ptr->details->pn_min_memory;
+
+		_find_feature_nodes(job_ptr->details->feature_list, can_reboot);
 
 		feat_iter = list_iterator_create(
 				job_ptr->details->feature_list);
