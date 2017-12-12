@@ -105,6 +105,7 @@ static int  _build_node_list(struct job_record *job_ptr,
 			     struct node_set **node_set_pptr,
 			     int *node_set_size, char **err_msg,
 			     bool test_only, bool can_reboot);
+static void _clear_feature_nodes(List feature_list);
 static void _find_feature_nodes(List feature_list, bool can_reboot);
 static int  _fill_in_gres_fields(struct job_record *job_ptr);
 static void _filter_nodes_in_set(struct node_set *node_set_ptr,
@@ -114,10 +115,6 @@ static void _filter_nodes_in_set(struct node_set *node_set_ptr,
 static bool _first_array_task(struct job_record *job_ptr);
 static void _log_node_set(uint32_t job_id, struct node_set *node_set_ptr,
 			  int node_set_size);
-static int  _match_feature(char *seek, struct node_set *node_set_ptr,
-			   bool can_reboot);
-static int  _match_feature2(char *seek, struct node_set *node_set_ptr,
-			    bitstr_t **inactive_bitmap);
 static int  _match_feature3(struct job_record *job_ptr,
 			    struct node_set *node_set_ptr,
 			    bitstr_t **inactive_bitmap);
@@ -632,6 +629,8 @@ extern void deallocate_nodes(struct job_record *job_ptr, bool timeout,
  * For every element in the feature_list, identify the nodes with that feature
  * either active or available and set the feature_list's node_bitmap_active and
  * node_bitmap_avail fields accordingly.
+ *
+ * Call _clear_feature_nodes() to release allocated memory
  */
 static void _find_feature_nodes(List feature_list, bool can_reboot)
 {
@@ -639,6 +638,8 @@ static void _find_feature_nodes(List feature_list, bool can_reboot)
 	job_feature_t  *job_feat_ptr;
 	node_feature_t *node_feat_ptr;
 
+	if (!feature_list)
+		return;
 	feat_iter = list_iterator_create(feature_list);
 	while ((job_feat_ptr = (job_feature_t *) list_next(feat_iter))) {
 		FREE_NULL_BITMAP(job_feat_ptr->node_bitmap_active);
@@ -663,73 +664,35 @@ static void _find_feature_nodes(List feature_list, bool can_reboot)
 			job_feat_ptr->node_bitmap_avail =
 				bit_copy(job_feat_ptr->node_bitmap_active);
 		}
+#if 1
+{
+		char *tmp1, *tmp2;
+		tmp1 = bitmap2node_name(job_feat_ptr->node_bitmap_active);
+		tmp2 = bitmap2node_name(job_feat_ptr->node_bitmap_avail);
+		info("%s: FEAT:%s CNT:%u ACTIVE:%s AVAIL:%s", __func__,
+		     job_feat_ptr->name, job_feat_ptr->count, tmp1, tmp2);
+		xfree(tmp1);
+		xfree(tmp2);
+}
+#endif
 	}
 	list_iterator_destroy(feat_iter);
 }
 
-/*
- * _match_feature - determine if the desired feature is one of those available
- * IN seek - desired feature
- * IN node_set_ptr - Pointer to node_set being searched
- * IN can_reboot - if true node can use any available feature,
- *	else job can use only active features
- * RET 1 if found, 0 otherwise
- */
-static int _match_feature(char *seek, struct node_set *node_set_ptr,
-			  bool can_reboot)
+/* Release memory allocatated by _find_feature_nodes() */
+static void _clear_feature_nodes(List feature_list)
 {
-	node_feature_t *feat_ptr;
+	ListIterator feat_iter;
+	job_feature_t *job_feat_ptr;
 
-	if (seek == NULL)
-		return 1;	/* nothing to look for */
-	if (can_reboot && node_features_g_changible_feature(seek)) {
-		feat_ptr = list_find_first(avail_feature_list,
-					   list_find_feature, (void *) seek);
-	} else {
-		feat_ptr = list_find_first(active_feature_list,
-					   list_find_feature, (void *) seek);
+	if (!feature_list)
+		return;
+	feat_iter = list_iterator_create(feature_list);
+	while ((job_feat_ptr = (job_feature_t *) list_next(feat_iter))) {
+		FREE_NULL_BITMAP(job_feat_ptr->node_bitmap_active);
+		FREE_NULL_BITMAP(job_feat_ptr->node_bitmap_avail);
 	}
-	if ((feat_ptr == NULL) || (feat_ptr->node_bitmap == NULL))
-		return 0;	/* no such feature */
-
-	if (bit_super_set(node_set_ptr->my_bitmap, feat_ptr->node_bitmap))
-		return 1;	/* nodes have this feature */
-	return 0;
-}
-
-/*
- * _match_feature2 - determine which of the desired features is now inactive
- * IN seek - desired feature
- * IN node_set_ptr - Pointer to node_set being searched
- * OUT inactive_bitmap - Nodes with this as inactive feature
- * RET 1 if some nodes with this inactive feature, 0 no such inactive feature
- */
-static int _match_feature2(char *seek, struct node_set *node_set_ptr,
-			   bitstr_t **inactive_bitmap)
-{
-	node_feature_t *feat_ptr;
-
-	if ((seek == NULL) ||			/* nothing to look for */
-	    (node_features_g_count() == 0))	/* No inactive features */
-		return 0;
-
-	feat_ptr = list_find_first(active_feature_list, list_find_feature,
-				   (void *) seek);
-	if ((feat_ptr == NULL) || (feat_ptr->node_bitmap == NULL)) {
-		if (bit_set_count(node_set_ptr->my_bitmap) > 0) {
-			*inactive_bitmap = bit_copy(node_set_ptr->my_bitmap);
-			return 1;
-		}
-		return 0;
-	}
-
-	*inactive_bitmap = bit_copy(feat_ptr->node_bitmap);
-	bit_not(*inactive_bitmap);
-	bit_and(*inactive_bitmap, node_set_ptr->my_bitmap);
-	if (bit_set_count(*inactive_bitmap) != 0)
-		return 1;
-	FREE_NULL_BITMAP(*inactive_bitmap);
-	return 0;
+	list_iterator_destroy(feat_iter);
 }
 
 /*
@@ -781,7 +744,8 @@ static int _match_feature3(struct job_record *job_ptr,
 	return 0;
 }
 
-/* For a given job, if the available nodes differ from those with currently
+/*
+ * For a given job, if the available nodes differ from those with currently
  *	active features, return a bitmap of nodes with the job's required
  *	features currently active
  * IN job_ptr - job requesting resource allocation
@@ -933,7 +897,8 @@ _resolve_shared_status(struct job_record *job_ptr, uint16_t part_max_share,
 	}
 }
 
-/* Remove nodes from consideration for allocation based upon "ownership" by
+/*
+ * Remove nodes from consideration for allocation based upon "ownership" by
  * other users
  * job_ptr IN - Job to be scheduled
  * usable_node_mask IN/OUT - Nodes available for use by this job's user
@@ -973,7 +938,8 @@ extern void filter_by_node_owner(struct job_record *job_ptr,
 	}
 }
 
-/* Remove nodes from consideration for allocation based upon "mcs" by
+/*
+ * Remove nodes from consideration for allocation based upon "mcs" by
  * other users
  * job_ptr IN - Job to be scheduled
  * usable_node_mask IN/OUT - Nodes available for use by this job's mcs
@@ -1009,8 +975,10 @@ extern void filter_by_node_mcs(struct job_record *job_ptr, int mcs_select,
 	}
 }
 
-/* Remove nodes from the "avail_node_bitmap" which need to be rebooted in order
- * to be used if the job's "delay_boot" time has not yet been reached. */
+/*
+ * Remove nodes from the "avail_node_bitmap" which need to be rebooted in order
+ * to be used if the job's "delay_boot" time has not yet been reached.
+ */
 static void _filter_by_node_feature(struct job_record *job_ptr,
 				    struct node_set *node_set_ptr,
 				    int node_set_size)
@@ -1062,10 +1030,12 @@ _get_req_features(struct node_set *node_set_ptr, int node_set_size,
 	uint32_t powercap;
 	int layout_power;
 
-	/* Mark nodes reserved for other jobs as off limit for this job.
+	/*
+	 * Mark nodes reserved for other jobs as off limit for this job.
 	 * If the job has a reservation, we've already limited the contents
 	 * of select_bitmap to those nodes. Assume node reboot required
-	 * since we have not selected the compute nodes yet. */
+	 * since we have not selected the compute nodes yet.
+	 */
 	if (job_ptr->resv_name == NULL) {
 		time_t start_res = time(NULL);
 		rc = job_test_resv(job_ptr, &start_res, false, &resv_bitmap,
@@ -1127,8 +1097,10 @@ _get_req_features(struct node_set *node_set_ptr, int node_set_size,
 		job_ptr->details->req_node_bitmap = NULL;
 	}
 	saved_min_cpus = job_ptr->details->min_cpus;
-	/* Don't mess with max_cpus here since it is only set to be a limit
-	 * and not user configurable. */
+	/*
+	 * Don't mess with max_cpus here since it is only set to be a limit
+	 * and not user configurable.
+	 */
 	job_ptr->details->min_cpus = 1;
 	tmp_node_set_ptr = xmalloc(sizeof(struct node_set) * node_set_size * 2);
 
@@ -1141,7 +1113,6 @@ _get_req_features(struct node_set *node_set_ptr, int node_set_size,
 		uint64_t orig_req_mem = job_ptr->details->pn_min_memory;
 
 		_find_feature_nodes(job_ptr->details->feature_list, can_reboot);
-
 		feat_iter = list_iterator_create(
 				job_ptr->details->feature_list);
 		while ((feat_ptr = (job_feature_t *) list_next(feat_iter))) {
@@ -1149,13 +1120,14 @@ _get_req_features(struct node_set *node_set_ptr, int node_set_size,
 			if (feat_ptr->count == 0)
 				continue;
 			tmp_node_set_size = 0;
-			/* _pick_best_nodes() is destructive of the node_set
+			/*
+			 * _pick_best_nodes() is destructive of the node_set
 			 * data structure, so we need to make a copy and then
-			 * purge it */
+			 * purge it
+			 */
 			for (i = 0; i < node_set_size; i++) {
-				if (!_match_feature(feat_ptr->name,
-						    node_set_ptr+i,
-						    can_reboot))
+				if (!bit_super_set(node_set_ptr[i].my_bitmap,
+						   feat_ptr->node_bitmap_avail))
 					continue;
 				tmp_node_set_ptr[tmp_node_set_size].
 					cpus_per_node =
@@ -1181,10 +1153,14 @@ _get_req_features(struct node_set *node_set_ptr, int node_set_size,
 				if (test_only || !can_reboot ||
 				    (prev_node_set_ptr->weight == INFINITE))
 					continue;
-				if (!_match_feature2(feat_ptr->name,
-						     node_set_ptr+i,
-						     &inactive_bitmap))
+				inactive_bitmap =
+					bit_copy(node_set_ptr[i].my_bitmap);
+				bit_and_not(inactive_bitmap,
+					    feat_ptr->node_bitmap_active);
+				if (bit_ffs(inactive_bitmap) == -1) {
+					FREE_NULL_BITMAP(inactive_bitmap);
 					continue;
+				}
 				sort_again = true;
 				if (bit_equal(prev_node_set_ptr->my_bitmap,
 					      inactive_bitmap)) {
@@ -1264,7 +1240,7 @@ _get_req_features(struct node_set *node_set_ptr, int node_set_size,
 			xfree(tmp_str);
 }
 #endif
-			for (i=0; i<tmp_node_set_size; i++) {
+			for (i = 0; i < tmp_node_set_size; i++) {
 				xfree(tmp_node_set_ptr[i].features);
 				FREE_NULL_BITMAP(tmp_node_set_ptr[i].
 						 feature_bits);
@@ -1277,9 +1253,11 @@ _get_req_features(struct node_set *node_set_ptr, int node_set_size,
 				if (feat_ptr->op_code == FEATURE_OP_XAND)
 					has_xand = true;
 				if (has_xand) {
-					/* Don't make it required since we
+					/*
+					 * Don't make it required since we
 					 * check value on each call to
-					 * _pick_best_nodes() */
+					 * _pick_best_nodes()
+					 */
 				} else if (job_ptr->details->req_node_bitmap) {
 					bit_or(job_ptr->details->
 					       req_node_bitmap,
@@ -1373,7 +1351,7 @@ _get_req_features(struct node_set *node_set_ptr, int node_set_size,
 	} else if ((layout_power = which_power_layout()) == 0) {
 		debug5("powercapping disabled %d", which_power_layout());
 	} else if (!power_layout_ready()){
-		debug3("powercapping:checking job %u : skipped, problems with"
+		debug3("powercapping: checking job %u : skipped, problems with "
 		       "layouts, capping disabled", job_ptr->job_id);
 	} else {
 		uint32_t min_watts, max_watts, job_cap, tmp_pcap_cpu_freq = 0;
@@ -1385,7 +1363,7 @@ _get_req_features(struct node_set *node_set_ptr, int node_set_size,
 		bool reboot;
 
 		/*
-		 *centralized synchronization of all key/values
+		 * centralized synchronization of all key/values
 		 */
 		layouts_entity_pull_kv("power", "Cluster", "CurrentSumPower");
 
@@ -1395,16 +1373,20 @@ _get_req_features(struct node_set *node_set_ptr, int node_set_size,
 		max_watts = powercap_get_cluster_max_watts();
 		min_watts = powercap_get_cluster_min_watts();
 		cur_max_watts = powercap_get_cluster_current_max_watts();
-		/* in case of INFINITE cap, set it to max watts as it
-		 * is done in the powercapping logic */
+		/*
+		 * in case of INFINITE cap, set it to max watts as it
+		 * is done in the powercapping logic
+		 */
 		if (powercap == INFINITE)
 			powercap = max_watts;
 
-		/* build a temporary bitmap using idle_node_bitmap and
+		/*
+		 * build a temporary bitmap using idle_node_bitmap and
 		 * remove the selected bitmap from this bitmap.
 		 * Then compute the amount of power required for such a
 		 * configuration to check that is is allowed by the current
-		 * power cap */
+		 * power cap
+		 */
 		tmp_bitmap = bit_copy(idle_node_bitmap);
 		bit_and_not(tmp_bitmap, *select_bitmap);
 		if (layout_power == 1)
@@ -1435,11 +1417,13 @@ _get_req_features(struct node_set *node_set_ptr, int node_set_size,
 		}
 		bit_free(tmp_bitmap);
 
-		/* get job cap based on power reservation on the system,
+		/*
+		 * get job cap based on power reservation on the system,
 		 * if no reservation matches the job caracteristics, the
 		 * powercap or the max_wattswill be returned.
 		 * select the return code based on the impact of
-		 * reservations on the failure */
+		 * reservations on the failure
+		 */
 		reboot = node_features_reboot_test(job_ptr, *select_bitmap);
 		job_cap = powercap_get_job_cap(job_ptr, time(NULL), reboot);
 
@@ -1458,13 +1442,15 @@ _get_req_features(struct node_set *node_set_ptr, int node_set_size,
 			    (job_cap < powercap) ||
 			    (powercap < max_watts)) && (tmp_max_watts_dvfs)) {
 
-			/* Calculation of the CPU Frequency to set for the job:
+			/*
+			 * Calculation of the CPU Frequency to set for the job:
 			 * The optimal CPU Frequency is the maximum allowed
 			 * CPU Frequency that all idle nodes could run so that
 			 * the total power consumption of the cluster is below
 			 * the powercap value.since the number of Idle nodes
 			 * may change in every schedule the optimal CPU
-			 * Frequency may also change from one job to another.*/
+			 * Frequency may also change from one job to another.
+			 */
 				k = powercap_get_job_optimal_cpufreq(job_cap,
 							  allowed_freqs);
 				while ((tmp_max_watts_dvfs[k] > job_cap) &&
@@ -1492,14 +1478,15 @@ _get_req_features(struct node_set *node_set_ptr, int node_set_size,
 				job_ptr->details->cpu_freq_max = tmp_pcap_cpu_freq;
 				job_ptr->details->cpu_freq_gov = 0x10;
 
-			/* Since we alter the DVFS of jobs we need to deal with
+			/*
+			 * Since we alter the DVFS of jobs we need to deal with
 			 * their time_limit to calculate the extra time needed
 			 * for them to complete the execution without getting
 			 * killed there should be a parameter to declare the
 			 * effect of cpu frequency on execution time for the
 			 * moment we use time_limit and time_min
-			 * This has to be done to allow backfilling */
-
+			 * This has to be done to allow backfilling
+			 */
 				ratio = (1 + (float)allowed_freqs[k] /
 					     (float)allowed_freqs[-1]);
 				if ((job_ptr->time_limit != INFINITE) &&
@@ -1523,6 +1510,7 @@ _get_req_features(struct node_set *node_set_ptr, int node_set_size,
 	}
 
 	FREE_NULL_LIST(preemptee_candidates);
+	_clear_feature_nodes(job_ptr->details->feature_list);
 
 	/* restore job's initial required node bitmap */
 	FREE_NULL_BITMAP(job_ptr->details->req_node_bitmap);
