@@ -115,8 +115,7 @@ static void _filter_nodes_in_set(struct node_set *node_set_ptr,
 static bool _first_array_task(struct job_record *job_ptr);
 static void _log_node_set(uint32_t job_id, struct node_set *node_set_ptr,
 			  int node_set_size);
-static int  _match_feature3(struct job_record *job_ptr,
-			    struct node_set *node_set_ptr,
+static int  _match_feature3(List feature_list, struct node_set *node_set_ptr,
 			    bitstr_t **inactive_bitmap);
 static int _nodes_in_sets(bitstr_t *req_bitmap,
 			  struct node_set * node_set_ptr,
@@ -703,21 +702,19 @@ static void _clear_feature_nodes(List feature_list)
  * RET 1 if some nodes with this inactive feature, 0 no such inactive feature
  * NOTE: Currently supports only simple AND of features
  */
-static int _match_feature3(struct job_record *job_ptr,
-			   struct node_set *node_set_ptr,
+static int _match_feature3(List feature_list, struct node_set *node_set_ptr,
 			   bitstr_t **inactive_bitmap)
 {
-	struct job_details *details_ptr = job_ptr->details;
 	ListIterator feat_iter;
 	job_feature_t *job_feat_ptr;
 	node_feature_t *node_feat_ptr;
 	bitstr_t *tmp_bitmap = NULL;
 
-	if ((details_ptr->feature_list == NULL) ||   /* nothing to look for */
+	if ((feature_list == NULL) ||		/* nothing to look for */
 	    (node_features_g_count() == 0))	/* No inactive features */
 		return 0;
 
-	feat_iter = list_iterator_create(details_ptr->feature_list);
+	feat_iter = list_iterator_create(feature_list);
 	while ((job_feat_ptr = (job_feature_t *) list_next(feat_iter))) {
 		node_feat_ptr = list_find_first(active_feature_list,
 						list_find_feature,
@@ -1621,6 +1618,7 @@ _pick_best_nodes(struct node_set *node_set_ptr, int node_set_size,
 
 	if ((job_ptr->details->min_nodes == 0) &&
 	    (job_ptr->details->max_nodes == 0)) {
+		/* Zero compute node job (burst buffer use only) */
 		avail_bitmap = bit_alloc(node_record_count);
 		pick_code = select_g_job_test(job_ptr,
 					      avail_bitmap,
@@ -1638,7 +1636,7 @@ _pick_best_nodes(struct node_set *node_set_ptr, int node_set_size,
 			return ESLURM_REQUESTED_NODE_CONFIG_UNAVAILABLE;
 		}
 	} else if (node_set_size == 0) {
-		info("_pick_best_nodes: empty node set for selection");
+		info("%s: empty node set for selection", __func__);
 		return ESLURM_REQUESTED_NODE_CONFIG_UNAVAILABLE;
 	}
 
@@ -1658,14 +1656,18 @@ _pick_best_nodes(struct node_set *node_set_ptr, int node_set_size,
 	if (cr_enabled)
 		job_ptr->cr_enabled = cr_enabled; /* CR enabled for this job */
 
-	/* If job preemption is enabled, then do NOT limit the set of available
-	 * nodes by their current 'sharable' or 'idle' setting */
+	/*
+	 * If job preemption is enabled, then do NOT limit the set of available
+	 * nodes by their current 'sharable' or 'idle' setting
+	 */
 	preempt_flag = slurm_preemption_enabled();
 
 	if (job_ptr->details->req_node_bitmap) {  /* specific nodes required */
-		/* We have already confirmed that all of these nodes have a
+		/*
+		 * We have already confirmed that all of these nodes have a
 		 * usable configuration and are in the proper partition.
-		 * Check that these nodes can be used by this job. */
+		 * Check that these nodes can be used by this job.
+		 */
 		if (min_nodes != 0) {
 			total_nodes = bit_set_count(
 				job_ptr->details->req_node_bitmap);
@@ -1698,20 +1700,23 @@ _pick_best_nodes(struct node_set *node_set_ptr, int node_set_size,
 			}
 		}
 
-		/* check the availability of these nodes */
-		/* Should we check memory availability on these nodes? */
+		/*
+		 * Check the availability of these nodes.
+		 * Should we check memory availability on these nodes?
+		 */
 		if (!bit_super_set(job_ptr->details->req_node_bitmap,
 				   avail_node_bitmap)) {
 			return ESLURM_NODE_NOT_AVAIL;
 		}
 
-		/* still must go through select_g_job_test() to
-		 * determine validity of request and/or perform
-		 * set-up before job launch */
+		/*
+		 * Still must go through select_g_job_test() to determine the
+		 * validity of request and/or perform set-up before job launch
+		 */
 		total_nodes = 0;	/* reinitialize */
 	}
 
-	/* identify the min and max feature values for exclusive OR */
+	/* identify the min and max feature values for possible exclusive OR */
 	max_feature = -1;
 	min_feature = MAX_FEATURES;
 	for (i = 0; i < node_set_size; i++) {
@@ -1723,11 +1728,13 @@ _pick_best_nodes(struct node_set *node_set_ptr, int node_set_size,
 			max_feature = j;
 	}
 
-	debug3("_pick_best_nodes: job %u idle_nodes %u share_nodes %u",
+	debug3("%s: job %u idle_nodes %u share_nodes %u", __func__,
 		job_ptr->job_id, bit_set_count(idle_node_bitmap),
 		bit_set_count(share_node_bitmap));
-	/* Accumulate resources for this job based upon its required
-	 * features (possibly with node counts). */
+	/*
+	 * Accumulate resources for this job based upon its required
+	 * features (possibly with node counts).
+	 */
 	for (j = min_feature; j <= max_feature; j++) {
 		if (job_ptr->details->req_node_bitmap) {
 			bool missing_required_nodes = false;
@@ -3495,8 +3502,8 @@ static int _build_node_list(struct job_record *job_ptr,
 		}
 		if (test_only || !can_reboot)
 			continue;
-		if (!_match_feature3(job_ptr, prev_node_set_ptr,
-				     &inactive_bitmap))
+		if (!_match_feature3(job_ptr->details->feature_list,
+				     prev_node_set_ptr, &inactive_bitmap))
 			continue;
 
 		if (bit_equal(prev_node_set_ptr->my_bitmap, inactive_bitmap)) {
