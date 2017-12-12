@@ -3113,12 +3113,11 @@ static bool _valid_feature_counts(struct job_record *job_ptr,
 				  bitstr_t *node_bitmap, bool *has_xor)
 {
 	struct job_details *detail_ptr = job_ptr->details;
-	List feature_list;
 	ListIterator job_feat_iter;
 	job_feature_t *job_feat_ptr;
-	node_feature_t *node_feat_ptr;
-	int have_count = false, last_op = FEATURE_OP_AND;
-	bitstr_t *feature_bitmap, *tmp_bitmap;
+	int last_op = FEATURE_OP_AND, last_paren_op = FEATURE_OP_AND;
+	int last_paren_cnt = 0;
+	bitstr_t *feature_bitmap, *paren_bitmap, *work_bitmap;
 	bool rc = true, user_update;
 
 	xassert(detail_ptr);
@@ -3130,70 +3129,62 @@ static bool _valid_feature_counts(struct job_record *job_ptr,
 		return rc;
 
 	user_update = node_features_g_user_update(job_ptr->user_id);
+	_find_feature_nodes(detail_ptr->feature_list, user_update);
 	feature_bitmap = bit_copy(node_bitmap);
+	work_bitmap = feature_bitmap;
 	job_feat_iter = list_iterator_create(detail_ptr->feature_list);
 	while ((job_feat_ptr = (job_feature_t *) list_next(job_feat_iter))) {
-		if (user_update &&
-		    node_features_g_changible_feature(job_feat_ptr->name)) {
-			feature_list = avail_feature_list;
-		} else {
-			feature_list = active_feature_list;
+		if (last_paren_cnt < job_feat_ptr->paren) {
+			/* Start of expression in parenthesis */
+			last_paren_op = last_op;
+			last_op = FEATURE_OP_AND;
+			paren_bitmap = bit_copy(node_bitmap);
+			work_bitmap = paren_bitmap;
 		}
-		node_feat_ptr = list_find_first(feature_list,
-					list_find_feature,
-					(void *) job_feat_ptr->name);
-		if (node_feat_ptr) {
+
+		if (job_feat_ptr->node_bitmap_avail) {
 			if (last_op == FEATURE_OP_AND) {
-				bit_and(feature_bitmap,
-					node_feat_ptr->node_bitmap);
+				bit_and(work_bitmap,
+					job_feat_ptr->node_bitmap_avail);
 			} else if (last_op == FEATURE_OP_OR) {
-				bit_or(feature_bitmap,
-				       node_feat_ptr->node_bitmap);
+				bit_or(work_bitmap,
+				       job_feat_ptr->node_bitmap_avail);
 			} else {	/* FEATURE_OP_XOR or FEATURE_OP_XAND */
 				*has_xor = true;
-				bit_or(feature_bitmap,
-				       node_feat_ptr->node_bitmap);
+				bit_or(work_bitmap,
+				       job_feat_ptr->node_bitmap_avail);
 			}
 		} else {	/* feature not found */
 			if (last_op == FEATURE_OP_AND) {
-				bit_nclear(feature_bitmap, 0,
+				bit_nclear(work_bitmap, 0,
 					   (node_record_count - 1));
 			}
 		}
-		last_op = job_feat_ptr->op_code;
-		if (job_feat_ptr->count)
-			have_count = true;
-	}
-	list_iterator_destroy(job_feat_iter);
-
-	if (have_count) {
-		job_feat_iter = list_iterator_create(detail_ptr->
-						     feature_list);
-		while ((job_feat_ptr = (job_feature_t *)
-				list_next(job_feat_iter))) {
-			if (job_feat_ptr->count == 0)
-				continue;
-			node_feat_ptr = list_find_first(feature_list,
-						list_find_feature,
-						(void *)job_feat_ptr->name);
-			if (!node_feat_ptr) {
+		if (job_feat_ptr->count) {
+			if (bit_set_count(work_bitmap) < job_feat_ptr->count) {
 				rc = false;
 				break;
 			}
-			tmp_bitmap = bit_copy(feature_bitmap);
-			bit_and(tmp_bitmap, node_feat_ptr->node_bitmap);
-			if (bit_set_count(tmp_bitmap) < job_feat_ptr->count)
-				rc = false;
-			FREE_NULL_BITMAP(tmp_bitmap);
-			if (!rc)
-				break;
 		}
-		list_iterator_destroy(job_feat_iter);
-		FREE_NULL_BITMAP(feature_bitmap);
-	} else {
-		bit_and(node_bitmap, feature_bitmap);
-		FREE_NULL_BITMAP(feature_bitmap);
+
+		if (last_paren_cnt > job_feat_ptr->paren) {
+			/* End of expression in parenthesis */
+			if (last_paren_op == FEATURE_OP_AND) {
+				bit_and(feature_bitmap, work_bitmap);
+			} else if (last_paren_op == FEATURE_OP_OR) {
+				bit_or(feature_bitmap, work_bitmap);
+			} else {	/* FEATURE_OP_XOR or FEATURE_OP_XAND */
+				*has_xor = true;
+				bit_or(work_bitmap,
+				       job_feat_ptr->node_bitmap_avail);
+			}
+		}
+
+		last_op = job_feat_ptr->op_code;
+		last_paren_cnt = job_feat_ptr->paren;
 	}
+	list_iterator_destroy(job_feat_iter);
+	_clear_feature_nodes(detail_ptr->feature_list);
 
 	return rc;
 }
