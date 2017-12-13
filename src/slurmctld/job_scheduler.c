@@ -4583,9 +4583,11 @@ extern int build_feature_list(struct job_record *job_ptr)
 
 static void _feature_list_delete(void *x)
 {
-	job_feature_t *feature = (job_feature_t *)x;
-	xfree(feature->name);
-	xfree(feature);
+	job_feature_t *feature_ptr = (job_feature_t *)x;
+	xfree(feature_ptr->name);
+	FREE_NULL_BITMAP(feature_ptr->node_bitmap_active);
+	FREE_NULL_BITMAP(feature_ptr->node_bitmap_avail);
+	xfree(feature_ptr);
 }
 
 static int _valid_feature_list(struct job_record *job_ptr, List feature_list)

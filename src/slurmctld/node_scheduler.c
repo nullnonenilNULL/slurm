@@ -105,7 +105,6 @@ static int  _build_node_list(struct job_record *job_ptr,
 			     struct node_set **node_set_pptr,
 			     int *node_set_size, char **err_msg,
 			     bool test_only, bool can_reboot);
-static void _clear_feature_nodes(List feature_list);
 static void _find_feature_nodes(List feature_list, bool can_reboot);
 static int  _fill_in_gres_fields(struct job_record *job_ptr);
 static void _filter_nodes_in_set(struct node_set *node_set_ptr,
@@ -628,8 +627,6 @@ extern void deallocate_nodes(struct job_record *job_ptr, bool timeout,
  * For every element in the feature_list, identify the nodes with that feature
  * either active or available and set the feature_list's node_bitmap_active and
  * node_bitmap_avail fields accordingly.
- *
- * Call _clear_feature_nodes() to release allocated memory
  */
 static void _find_feature_nodes(List feature_list, bool can_reboot)
 {
@@ -674,22 +671,6 @@ static void _find_feature_nodes(List feature_list, bool can_reboot)
 		xfree(tmp2);
 }
 #endif
-	}
-	list_iterator_destroy(feat_iter);
-}
-
-/* Release memory allocatated by _find_feature_nodes() */
-static void _clear_feature_nodes(List feature_list)
-{
-	ListIterator feat_iter;
-	job_feature_t *job_feat_ptr;
-
-	if (!feature_list)
-		return;
-	feat_iter = list_iterator_create(feature_list);
-	while ((job_feat_ptr = (job_feature_t *) list_next(feat_iter))) {
-		FREE_NULL_BITMAP(job_feat_ptr->node_bitmap_active);
-		FREE_NULL_BITMAP(job_feat_ptr->node_bitmap_avail);
 	}
 	list_iterator_destroy(feat_iter);
 }
@@ -1507,7 +1488,6 @@ _get_req_features(struct node_set *node_set_ptr, int node_set_size,
 	}
 
 	FREE_NULL_LIST(preemptee_candidates);
-	_clear_feature_nodes(job_ptr->details->feature_list);
 
 	/* restore job's initial required node bitmap */
 	FREE_NULL_BITMAP(job_ptr->details->req_node_bitmap);
@@ -3184,7 +3164,6 @@ static bool _valid_feature_counts(struct job_record *job_ptr,
 		last_paren_cnt = job_feat_ptr->paren;
 	}
 	list_iterator_destroy(job_feat_iter);
-	_clear_feature_nodes(detail_ptr->feature_list);
 
 	return rc;
 }
