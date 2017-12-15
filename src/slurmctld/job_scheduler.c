@@ -4493,7 +4493,9 @@ extern int build_feature_list(struct job_record *job_ptr)
 			feat->name = xstrdup(feature);
 			feat->count = count;
 			feat->paren = paren;
-			if (bracket)
+			if (paren)
+				feat->op_code = FEATURE_OP_AND;
+			else if (bracket)
 				feat->op_code = FEATURE_OP_XAND;
 			else
 				feat->op_code = FEATURE_OP_AND;
@@ -4510,7 +4512,9 @@ extern int build_feature_list(struct job_record *job_ptr)
 			feat->name = xstrdup(feature);
 			feat->count = count;
 			feat->paren = paren;
-			if (bracket)
+			if (paren)
+				feat->op_code = FEATURE_OP_OR;
+			else if (bracket)
 				feat->op_code = FEATURE_OP_XOR;
 			else
 				feat->op_code = FEATURE_OP_OR;
